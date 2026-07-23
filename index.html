@@ -358,6 +358,26 @@
                 </div>
               </div>
 
+              <!-- Local Sync Control Widget -->
+              <div class="glass-card" style="padding: 16px; margin-top: 16px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.06); background: rgba(13, 20, 38, 0.4); border-radius: 12px; backdrop-filter: var(--glass-blur);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <span style="font-size: 13px; font-weight: 700; font-family: var(--font-display); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-hard-drive" style="color: var(--color-success);"></i> Local Drive Sync
+                  </span>
+                  <span id="local-sync-badge" class="badge" style="font-size: 10px; padding: 3px 8px; border-radius: 6px; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25);">Active (Browser DB)</span>
+                </div>
+                <p style="font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-bottom: 12px;">Your files are kept locally on your hard drive to protect your financial privacy and support offline recovery.</p>
+                <div style="display: flex; gap: 8px;">
+                  <button id="btn-sync-folder" class="btn btn-secondary btn-sm" style="font-size: 11px; display: flex; align-items: center; gap: 6px; cursor: pointer; flex: 1; justify-content: center; border-radius: 8px;" onclick="setupLocalFolderSync()">
+                    <i class="fa-solid fa-folder-open"></i> Link Local Directory
+                  </button>
+                  <button id="btn-download-all" class="btn btn-secondary btn-sm" style="font-size: 11px; display: flex; align-items: center; gap: 6px; cursor: pointer; justify-content: center; border-radius: 8px;" onclick="downloadAllLocalFiles()">
+                    <i class="fa-solid fa-download"></i> Backup All
+                  </button>
+                </div>
+                <div id="local-sync-folder-path" style="font-size: 11px; color: var(--text-secondary); margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px dashed var(--border-color); display: none; word-break: break-all;"></div>
+              </div>
+
               <!-- Uploaded Files Preview -->
               <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600;">Uploaded Files</h4>
               <div class="uploaded-files-preview" id="files-preview-list">

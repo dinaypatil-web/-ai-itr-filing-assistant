@@ -149,6 +149,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Load configuration for local folder sync from user's disk
+  await checkStoredLocalFolder();
+
   await syncFromBackend();
   addBotMessage('Namaste! I am your AI Tax Assistant. Sign in above to load your financial profile, or ask me any tax question.');
 });
@@ -162,6 +165,9 @@ async function syncFromBackend() {
     renderFilesPreview();
     await syncInputsToUi();
     await recalculateAll();
+
+    // Check if any files stored in the User's Local drive (IndexedDB) need restoring to server
+    await recoverFilesToServer();
   }
 }
 
@@ -822,6 +828,17 @@ async function handleFileSelect(event) {
     return;
   }
 
+  // Store files locally on User's Local drive (IndexedDB & Local Sync Folder)
+  for (let file of files) {
+    await saveFileLocally(file.name, file, file.type, file.size);
+    if (localDirectoryHandle) {
+      const saved = await saveToLocalFolder(file);
+      if (saved) {
+        console.log(`Synced "${file.name}" to local folder.`);
+      }
+    }
+  }
+
   const formData = new FormData();
   for (let file of files) formData.append('files', file);
 
@@ -931,11 +948,16 @@ function renderFilesPreview() {
       <div class="file-preview-details" style="width: 100%;">
         <i class="fa-solid ${icon} file-preview-icon" style="color: var(--color-primary); align-self: flex-start; margin-top: 4px;"></i>
         <div style="flex: 1; min-width: 0;">
-          <div style="font-weight:600; font-size:12px; word-break:break-all; padding-right: 24px; position: relative;">
-            ${f.name}
-            <button onclick="deleteUploadedFile('${f.name}', this)" title="Delete file" style="position: absolute; right: 0; top: 0; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-error)'" onmouseout="this.style.color='var(--text-muted)'">
-              <i class="fa-solid fa-trash-can"></i>
-            </button>
+          <div style="font-weight:600; font-size:12px; word-break:break-all; padding-right: 48px; position: relative;">
+            <i class="fa-solid fa-hard-drive" style="color: var(--color-success); font-size: 10px; margin-right: 4px;" title="Stored on Local Drive"></i>${f.name}
+            <div style="position: absolute; right: 0; top: 0; display: flex; gap: 4px;">
+              <button onclick="downloadLocalFile('${f.name}')" title="Download to local drive" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-success)'" onmouseout="this.style.color='var(--text-muted)'">
+                <i class="fa-solid fa-download"></i>
+              </button>
+              <button onclick="deleteUploadedFile('${f.name}', this)" title="Delete file" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-error)'" onmouseout="this.style.color='var(--text-muted)'">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </div>
           </div>
           <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">${f.size}${uploadDate ? ' • ' + uploadDate : ''}</div>
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
@@ -965,6 +987,12 @@ async function deleteUploadedFile(filename, element) {
     const res = await apiPost('/documents/delete', { name: filename });
     if (res && !res.error) {
       showToast('Deleted Successfully', 'Document has been deleted.', 'success');
+      
+      // Delete locally from User's Local drive (IndexedDB and Sync Folder)
+      await deleteFileLocally(filename);
+      if (localDirectoryHandle) {
+        await deleteFromLocalFolder(filename);
+      }
       
       if (res.user) {
         appState = {
@@ -2174,4 +2202,361 @@ function showToast(title, body, type = 'success') {
 
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// ==========================================
+// LOCAL STORAGE & SYNC ENGINE (IndexedDB & File System Access API)
+// ==========================================
+
+const DB_NAME = 'TaxAssistantDB';
+const DB_VERSION = 2;
+const STORE_FILES = 'uploaded_files';
+const STORE_CONFIG = 'app_config';
+
+let localDirectoryHandle = null;
+
+// Initialize IndexedDB
+function openIndexedDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_FILES)) {
+        db.createObjectStore(STORE_FILES, { keyPath: 'name' });
+      }
+      if (!db.objectStoreNames.contains(STORE_CONFIG)) {
+        db.createObjectStore(STORE_CONFIG, { keyPath: 'key' });
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// Save file binary data to IndexedDB (User's local drive via browser storage)
+async function saveFileLocally(name, fileBlob, type, size) {
+  try {
+    const db = await openIndexedDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_FILES], 'readwrite');
+      const store = transaction.objectStore(STORE_FILES);
+      const data = {
+        name,
+        blob: fileBlob,
+        type,
+        size,
+        uploadedAt: new Date().toISOString()
+      };
+      const request = store.put(data);
+      request.onsuccess = () => resolve(true);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  } catch (err) {
+    console.error('IndexedDB save failed:', err);
+    return false;
+  }
+}
+
+// Retrieve all files stored locally in IndexedDB
+async function getLocalFiles() {
+  try {
+    const db = await openIndexedDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_FILES], 'readonly');
+      const store = transaction.objectStore(STORE_FILES);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  } catch (err) {
+    console.error('IndexedDB retrieve failed:', err);
+    return [];
+  }
+}
+
+// Delete file from IndexedDB
+async function deleteFileLocally(name) {
+  try {
+    const db = await openIndexedDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_FILES], 'readwrite');
+      const store = transaction.objectStore(STORE_FILES);
+      const request = store.delete(name);
+      request.onsuccess = () => resolve(true);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  } catch (err) {
+    console.error('IndexedDB delete failed:', err);
+    return false;
+  }
+}
+
+// Trigger browser download for a locally stored file
+async function downloadLocalFile(name) {
+  try {
+    const db = await openIndexedDB();
+    const fileData = await new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_FILES], 'readonly');
+      const store = transaction.objectStore(STORE_FILES);
+      const request = store.get(name);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = (e) => reject(e.target.error);
+    });
+
+    if (!fileData || !fileData.blob) {
+      showToast('File Not Found', 'Could not locate file in local database.', 'error');
+      return;
+    }
+
+    const url = URL.createObjectURL(fileData.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Download Started', `Downloading "${name}" to your local drive.`, 'success');
+  } catch (err) {
+    console.error('Local file download failed:', err);
+    showToast('Download Error', 'Could not complete download from local drive.', 'error');
+  }
+}
+
+// Download all files as individual downloads (or backup)
+async function downloadAllLocalFiles() {
+  const files = await getLocalFiles();
+  if (files.length === 0) {
+    showToast('No Files', 'No local files available to backup.', 'warning');
+    return;
+  }
+  showToast('Backing up files', `Downloading ${files.length} documents...`, 'info');
+  for (const f of files) {
+    await downloadLocalFile(f.name);
+    // Pause briefly to prevent browser blocking simultaneous downloads
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+// Save Directory Handle to IndexedDB for persistent local sync
+async function saveDirectoryHandle(handle) {
+  try {
+    const db = await openIndexedDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_CONFIG], 'readwrite');
+      const store = transaction.objectStore(STORE_CONFIG);
+      const request = store.put({ key: 'directory_handle', handle });
+      request.onsuccess = () => resolve(true);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  } catch (err) {
+    console.error('Failed to save folder handle:', err);
+  }
+}
+
+// Retrieve Directory Handle from IndexedDB
+async function getDirectoryHandle() {
+  try {
+    const db = await openIndexedDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_CONFIG], 'readonly');
+      const store = transaction.objectStore(STORE_CONFIG);
+      const request = store.get('directory_handle');
+      request.onsuccess = () => resolve(request.result ? request.result.handle : null);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  } catch (err) {
+    console.error('Failed to retrieve folder handle:', err);
+    return null;
+  }
+}
+
+// Request read/write permissions for directory handle
+async function verifyFolderPermission(handle, readWrite) {
+  const options = {};
+  if (readWrite) {
+    options.mode = 'readwrite';
+  }
+  if ((await handle.queryPermission(options)) === 'granted') {
+    return true;
+  }
+  if ((await handle.requestPermission(options)) === 'granted') {
+    return true;
+  }
+  return false;
+}
+
+// Set up the local directory sync connection
+async function setupLocalFolderSync() {
+  if (!window.showDirectoryPicker) {
+    showToast('Unsupported Browser', 'Your browser does not support the File System Access API. Falling back to IndexedDB local storage.', 'info');
+    return;
+  }
+
+  try {
+    localDirectoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    await saveDirectoryHandle(localDirectoryHandle);
+    
+    showToast('Sync Configured', `Connected folder: "${localDirectoryHandle.name}". All uploads will sync here.`, 'success');
+    updateLocalSyncUI();
+
+    // Copy any files we have in IndexedDB into this newly connected folder
+    const localFiles = await getLocalFiles();
+    if (localFiles.length > 0) {
+      showToast('Syncing Files', `Copying ${localFiles.length} file(s) to local folder...`, 'info');
+      for (const f of localFiles) {
+        await saveToLocalFolder(f);
+      }
+    }
+  } catch (err) {
+    console.error('Folder selection cancelled or failed:', err);
+    if (err.name !== 'AbortError') {
+      showToast('Setup Failed', 'Could not establish folder sync.', 'error');
+    }
+  }
+}
+
+// Write a file to the configured local folder
+async function saveToLocalFolder(file) {
+  if (!localDirectoryHandle) return false;
+  try {
+    const hasPermission = await verifyFolderPermission(localDirectoryHandle, true);
+    if (!hasPermission) return false;
+
+    // file can be a File object or an IndexedDB file data object with .blob and .name
+    const fileName = file.name;
+    const content = file.blob || file;
+
+    const fileHandle = await localDirectoryHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+    return true;
+  } catch (err) {
+    console.error(`Failed to write "${file.name}" to local folder:`, err);
+    return false;
+  }
+}
+
+// Delete a file from the configured local folder
+async function deleteFromLocalFolder(name) {
+  if (!localDirectoryHandle) return false;
+  try {
+    const hasPermission = await verifyFolderPermission(localDirectoryHandle, true);
+    if (!hasPermission) return false;
+
+    await localDirectoryHandle.removeEntry(name);
+    return true;
+  } catch (err) {
+    console.error(`Failed to delete "${name}" from local folder:`, err);
+    return false;
+  }
+}
+
+// Restore local directory handle on application load
+async function checkStoredLocalFolder() {
+  try {
+    const handle = await getDirectoryHandle();
+    if (handle) {
+      localDirectoryHandle = handle;
+      // We don't request permission immediately to avoid prompting the user on load.
+      // Instead we display a "Permission Required" badge, and prompt when they click it or upload.
+      updateLocalSyncUI();
+    }
+  } catch (err) {
+    console.error('Failed to restore directory handle:', err);
+  }
+}
+
+// Update UI elements related to local storage status
+function updateLocalSyncUI() {
+  const badge = document.getElementById('local-sync-badge');
+  const pathInfo = document.getElementById('local-sync-folder-path');
+  const btn = document.getElementById('btn-sync-folder');
+
+  if (!badge) return;
+
+  if (localDirectoryHandle) {
+    badge.innerText = 'Sync Active';
+    badge.style.background = 'rgba(46, 204, 113, 0.2)';
+    badge.style.color = '#2ecc71';
+
+    if (pathInfo) {
+      pathInfo.style.display = 'block';
+      pathInfo.innerHTML = `<i class="fa-solid fa-folder"></i> Synced to local folder: <strong>${localDirectoryHandle.name}</strong>`;
+    }
+    if (btn) {
+      btn.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i> Change Directory';
+    }
+  } else {
+    badge.innerText = 'Active (Browser DB)';
+    badge.style.background = 'rgba(59, 130, 246, 0.2)';
+    badge.style.color = '#3b82f6';
+    
+    if (pathInfo) {
+      pathInfo.style.display = 'none';
+    }
+    if (btn) {
+      btn.innerHTML = '<i class="fa-solid fa-folder-open"></i> Link Local Directory';
+    }
+  }
+}
+
+// Check and restore files to the server if the server's session was lost (Vercel restarts)
+async function recoverFilesToServer() {
+  const localFiles = await getLocalFiles();
+  if (localFiles.length === 0) return;
+
+  // Compare local files against appState.uploadedFiles (synced from server profile)
+  // If the server says there are files, but we notice it lacks parsing or if the server
+  // lacks them entirely (cold start reset), we sync them back.
+  const serverFiles = appState.uploadedFiles || [];
+  const missingOnServer = localFiles.filter(lf => !serverFiles.some(sf => sf.name === lf.name));
+
+  if (missingOnServer.length > 0) {
+    showToast('Restoring Session', `Recovering ${missingOnServer.length} file(s) from your local drive...`, 'info');
+    
+    for (const fileRecord of missingOnServer) {
+      try {
+        const formData = new FormData();
+        // fileRecord.blob is stored in IndexedDB. Convert to a proper File object
+        const fileObj = new File([fileRecord.blob], fileRecord.name, { type: fileRecord.type });
+        formData.append('files', fileObj);
+
+        const uid = window._firebaseUser?.uid || appState.uid || '';
+        const res = await fetch(`${API_BASE}/documents/upload`, {
+          method: 'POST',
+          headers: { 'X-User-UID': uid },
+          body: formData
+        });
+        const data = await res.json();
+        
+        if (res.ok && data.user) {
+          // Merge user profile data returned
+          appState = {
+            ...appState,
+            ...data.user,
+            userName:  data.user.name     || appState.userName,
+            userPAN:   data.user.pan      || appState.userPAN,
+          };
+          
+          if (data.files) {
+            data.files.forEach(newFile => {
+              const idx = appState.uploadedFiles.findIndex(f => f.name === newFile.name);
+              if (idx >= 0) appState.uploadedFiles[idx] = newFile;
+              else appState.uploadedFiles.push(newFile);
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to restore "${fileRecord.name}" to server:`, err);
+      }
+    }
+
+    showToast('Session Restored', 'Your documents have been synced back to the parsing engine.', 'success');
+    renderFilesPreview();
+    updateProfileChecklist();
+    syncInputsToUi();
+    recalculateAll();
+  }
 }

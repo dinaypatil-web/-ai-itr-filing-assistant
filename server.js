@@ -503,8 +503,9 @@ async function extractActualDataFromPdf(filePath, docType) {
       }
     }
     else if (docType === 'Form 26AS / AIS') {
-      // Salary received (Section 192) ... 12 21,50,911
-      const salaryMatch = text.match(/Salary received \(Section 192\)[^\n]+?\b\d+\s+([\d,]+)/i);
+      // Salary received: Section 192 or TDS Annexure II
+      const salaryMatch = text.match(/Salary received \(Section 192\)[^\n]+?\b\d+\s+([\d,]+)/i) ||
+                          text.match(/Salary \(TDS Annexure II\)[^\n]+?\b\d+\s+([\d,]+)/i);
       if (salaryMatch) {
         data.grossSalary = parseFloat(salaryMatch[1].replace(/,/g, ''));
       }
@@ -703,26 +704,33 @@ app.post('/api/documents/upload', upload.array('files'), async (req, res) => {
     const nameLower = file.originalname.toLowerCase();
     const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
 
-    // Determine document type by filename keywords
+    // Determine document type by filename keywords (Priority-based matching)
     let docType = 'Other';
-    if (nameLower.includes('form16') || nameLower.includes('form-16') || nameLower.includes('form_16')) {
-      if (nameLower.includes('parta') || nameLower.includes('part-a') || nameLower.includes('part_a')) {
-        docType = 'Form 16 (Part A)';
-      } else if (nameLower.includes('partb') || nameLower.includes('part-b') || nameLower.includes('part_b')) {
+    if (nameLower.includes('26as') || nameLower.includes('ais') || nameLower.includes('tds')) {
+      docType = 'Form 26AS / AIS';
+    } else if (nameLower.includes('salary') || nameLower.includes('payslip') || nameLower.includes('payroll')) {
+      docType = 'Salary Slip';
+    } else if (nameLower.includes('broker') || nameLower.includes('gain') || nameLower.includes('capital') || nameLower.includes('demat')) {
+      docType = 'Capital Gains Statement';
+    } else if (nameLower.includes('loan') || nameLower.includes('house') || nameLower.includes('mortgage') || nameLower.includes('interest cert')) {
+      docType = 'Home Loan Certificate';
+    } else if (nameLower.includes('rent') || nameLower.includes('hra') || nameLower.includes('receipt')) {
+      docType = 'Rent Receipts';
+    } else if (nameLower.includes('fd') || nameLower.includes('fixed') || nameLower.includes('nps') || nameLower.includes('80c') || nameLower.includes('ppf')) {
+      docType = 'Investment Proof';
+    } else if (nameLower.includes('bank') || nameLower.includes('statement') || nameLower.includes('passbook')) {
+      docType = 'Bank Statement';
+    } else if (nameLower.includes('pan card') || nameLower.includes('pancard') || (nameLower.includes('pan') && !nameLower.includes('company') && !nameLower.includes('pan-sheet'))) {
+      docType = 'PAN Card';
+    } else if (nameLower.includes('aadhaar') || nameLower.includes('aadhar')) {
+      docType = 'Aadhaar Card';
+    } else if (nameLower.includes('form 16') || nameLower.includes('form16') || nameLower.includes('form-16') || nameLower.includes('form_16') || /[a-z]{5}[0-9]{4}[a-z]/i.test(nameLower)) {
+      if (nameLower.includes('partb') || nameLower.includes('part-b') || nameLower.includes('part_b') || nameLower.includes('part b')) {
         docType = 'Form 16 (Part B)';
       } else {
-        docType = 'Form 16 (Part A)'; // default fallback
+        docType = 'Form 16 (Part A)';
       }
     }
-    else if (nameLower.includes('salary') || nameLower.includes('payslip') || nameLower.includes('payroll')) docType = 'Salary Slip';
-    else if (nameLower.includes('broker') || nameLower.includes('gain') || nameLower.includes('capital') || nameLower.includes('demat')) docType = 'Capital Gains Statement';
-    else if (nameLower.includes('loan') || nameLower.includes('house') || nameLower.includes('mortgage') || nameLower.includes('interest cert')) docType = 'Home Loan Certificate';
-    else if (nameLower.includes('rent') || nameLower.includes('hra') || nameLower.includes('receipt')) docType = 'Rent Receipts';
-    else if (nameLower.includes('fd') || nameLower.includes('fixed') || nameLower.includes('nps') || nameLower.includes('80c') || nameLower.includes('ppf')) docType = 'Investment Proof';
-    else if (nameLower.includes('26as') || nameLower.includes('ais') || nameLower.includes('tds')) docType = 'Form 26AS / AIS';
-    else if (nameLower.includes('bank') || nameLower.includes('statement') || nameLower.includes('passbook')) docType = 'Bank Statement';
-    else if (nameLower.includes('pan')) docType = 'PAN Card';
-    else if (nameLower.includes('aadhaar') || nameLower.includes('aadhar')) docType = 'Aadhaar Card';
 
     const docMeta = {
       name: file.originalname,

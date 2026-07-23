@@ -690,8 +690,8 @@ function completeLogin() {
   // Load user's documents from backend
   apiGet('/documents').then(docs => {
     if (docs && !docs.error) {
-      // Merge loaded docs with any already in appState (from the firebase/verify response)
-      if (docs.length > 0) appState.uploadedFiles = docs;
+      // Overwrite file list with the user's active files (or clear it if they have none)
+      appState.uploadedFiles = docs || [];
     }
     renderFilesPreview();
     updateProfileChecklist();
@@ -939,6 +939,9 @@ function renderFilesPreview() {
     const icon = docTypeIcons[f.type] || 'fa-file-pdf';
     const uploadDate = f.uploadedAt ? new Date(f.uploadedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
+    // Escape single quotes for safe output in HTML attribute handlers
+    const escapedName = f.name.replace(/'/g, "\\'");
+
     const options = Object.keys(docTypeIcons).map(t => {
       const selected = f.type === t ? 'selected' : '';
       return `<option value="${t}" ${selected}>${t}</option>`;
@@ -951,10 +954,10 @@ function renderFilesPreview() {
           <div style="font-weight:600; font-size:12px; word-break:break-all; padding-right: 48px; position: relative;">
             <i class="fa-solid fa-hard-drive" style="color: var(--color-success); font-size: 10px; margin-right: 4px;" title="Stored on Local Drive"></i>${f.name}
             <div style="position: absolute; right: 0; top: 0; display: flex; gap: 4px;">
-              <button onclick="downloadLocalFile('${f.name}')" title="Download to local drive" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-success)'" onmouseout="this.style.color='var(--text-muted)'">
+              <button onclick="downloadLocalFile('${escapedName}')" title="Download to local drive" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-success)'" onmouseout="this.style.color='var(--text-muted)'">
                 <i class="fa-solid fa-download"></i>
               </button>
-              <button onclick="deleteUploadedFile('${f.name}', this)" title="Delete file" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-error)'" onmouseout="this.style.color='var(--text-muted)'">
+              <button onclick="deleteUploadedFile('${escapedName}', this)" title="Delete file" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--color-error)'" onmouseout="this.style.color='var(--text-muted)'">
                 <i class="fa-solid fa-trash-can"></i>
               </button>
             </div>
@@ -962,7 +965,7 @@ function renderFilesPreview() {
           <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">${f.size}${uploadDate ? ' • ' + uploadDate : ''}</div>
           <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
             <span style="font-size: 10px; color: var(--text-secondary); white-space: nowrap;">Map to:</span>
-            <select onchange="mapFileCategory('${f.name}', this.value)" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 6px; font-size: 10px; padding: 2px 6px; outline: none; color: var(--text-primary); cursor: pointer; flex: 1; min-width: 0;">
+            <select onchange="mapFileCategory('${escapedName}', this.value)" style="background: rgba(0,0,0,0.4); border: 1px solid var(--border-color); border-radius: 6px; font-size: 10px; padding: 2px 6px; outline: none; color: var(--text-primary); cursor: pointer; flex: 1; min-width: 0;">
               ${options}
             </select>
           </div>

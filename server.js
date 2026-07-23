@@ -462,8 +462,14 @@ async function extractActualDataFromPdf(filePath, docType) {
 
   try {
     const dataBuffer = fs.readFileSync(filePath);
-    const parsed = await getPdfParse()(dataBuffer);
-    const text = parsed.text;
+    const pdfInstance = new (getPdfParse().PDFParse)({ data: dataBuffer });
+    let text = '';
+    try {
+      const textResult = await pdfInstance.getText();
+      text = textResult.text;
+    } finally {
+      await pdfInstance.destroy();
+    }
 
     // 1. Extract PAN (General check)
     const panMatches = text.match(/[A-Z]{5}[0-9]{4}[A-Z]/g);

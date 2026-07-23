@@ -455,11 +455,102 @@ app.post('/api/profile/bank-ifsc', async (req, res) => {
   res.json({ message: 'Bank credentials corrected.' });
 });
 
+// Extract data using Google Generative AI (Gemini 1.5 Flash) API with JSON Schema
+async function extractDataWithGemini(filePath, docType) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured in the environment.');
+  }
+
+  const dataBuffer = fs.readFileSync(filePath);
+  const base64Pdf = dataBuffer.toString('base64');
+
+  const prompt = `You are a professional Indian Tax Assistant. Analyze the attached PDF document which is classified as: '${docType}'.
+Extract all available figures and details.
+Return a JSON object matching this schema (only fill in fields that are present or can be calculated from this document):
+{
+  "name": "Full Name of Filer",
+  "pan": "PAN Number (10 alphanumeric characters)",
+  "grossSalary": number (Gross Salary/Gross Income),
+  "tdsSalary": number (Total Tax Deducted at Source),
+  "savingsInterest": number (Savings bank interest income),
+  "hraExemption": number (Rent paid/exemption amount),
+  "cgTransactions": [
+    {
+      "asset": "Asset class and security name, e.g., Equity Shares - Reliance Industries Ltd.",
+      "buyDate": "DD/MM/YYYY (approximate if not explicit)",
+      "sellDate": "DD/MM/YYYY",
+      "buyVal": number (Cost of acquisition),
+      "sellVal": number (Sales consideration),
+      "result": number (Capital gain/loss),
+      "type": "STCG" or "LTCG",
+      "tax": number (calculated tax)
+    }
+  ]
+}`;
+
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'application/pdf',
+              data: base64Pdf
+            }
+          },
+          {
+            text: prompt
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      responseMimeType: 'application/json'
+    }
+  };
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!textResponse) {
+    throw new Error('Empty response from Gemini API.');
+  }
+
+  return JSON.parse(textResponse);
+}
+
 // Helper to extract actual values from uploaded PDFs using pdf-parse text extraction
 async function extractActualDataFromPdf(filePath, docType) {
-  const data = {};
+  let data = {};
   if (!filePath || !fs.existsSync(filePath)) return data;
 
+  // 1. Try Google Gemini API parser first if API key is set
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      console.log(`Parsing "${path.basename(filePath)}" using Google Gemini API...`);
+      const geminiData = await extractDataWithGemini(filePath, docType);
+      if (geminiData) {
+        console.log(`Successfully extracted structured data via Google Gemini.`);
+        return geminiData;
+      }
+    } catch (geminiError) {
+      console.error(`Google Gemini parsing failed: ${geminiError.message}. Falling back to local pdf-parse.`);
+    }
+  }
+
+  // 2. Fallback to local regex-based pdf-parse engine
   try {
     const dataBuffer = fs.readFileSync(filePath);
     const parsed = await getPdfParse()(dataBuffer);

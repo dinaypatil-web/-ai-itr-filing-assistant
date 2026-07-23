@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const admin = require('firebase-admin');
-const { PDFParse } = require('pdf-parse');
+const pdfParse = require('pdf-parse');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -448,10 +448,8 @@ async function extractActualDataFromPdf(filePath, docType) {
 
   try {
     const dataBuffer = fs.readFileSync(filePath);
-    const parser = new PDFParse({ data: dataBuffer });
-    const parsedText = await parser.getText();
-    const text = parsedText.text;
-    await parser.destroy();
+    const parsed = await pdfParse(dataBuffer);
+    const text = parsed.text;
 
     // 1. Extract PAN (General check)
     const panMatches = text.match(/[A-Z]{5}[0-9]{4}[A-Z]/g);

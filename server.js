@@ -33,14 +33,18 @@ app.get('/api/firebase-config', (req, res) => {
   });
 });
 
-// Setup uploads folder
-const uploadDir = path.join(__dirname, 'uploads');
+// Setup uploads folder — use /tmp on Vercel (only writable dir in serverless)
+// Fall back to local ./uploads when running locally
+const isVercel = !!process.env.VERCEL;
+const uploadDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
+  fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-// Setup local DB file path
-const dbFilePath = path.join(__dirname, 'database.json');
+// Setup local DB file path — /tmp on Vercel, local file otherwise
+// Note: database.json is gitignored; on Vercel the file is seeded from initialDb
+// at first-read time inside getDbData() if the /tmp file doesn't exist yet.
+const dbFilePath = isVercel ? '/tmp/database.json' : path.join(__dirname, 'database.json');
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -1269,7 +1273,12 @@ You can ask me specific questions about HRA exemptions, HRA/Home Loan double cla
   res.json({ responseText });
 });
 
-// Start Express Server
-app.listen(PORT, () => {
-  console.log(`AI ITR Filing Server live at http://localhost:${PORT}`);
-});
+// Export the Express app as the Vercel serverless handler.
+// When running locally via `node server.js`, also start the HTTP listener.
+module.exports = app;
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`AI ITR Filing Server live at http://localhost:${PORT}`);
+  });
+}

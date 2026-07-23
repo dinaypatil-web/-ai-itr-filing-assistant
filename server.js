@@ -23,8 +23,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static web client files directly from the current directory
-app.use(express.static('.'));
+// Serve static web client files — use __dirname (absolute) so the path is
+// always resolved correctly on Vercel's serverless runtime (CWD is not reliable).
+app.use(express.static(__dirname));
 
 // ==========================================
 // Firebase Web Config endpoint (keeps API key out of client source)

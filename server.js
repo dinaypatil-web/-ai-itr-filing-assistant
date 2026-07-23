@@ -6,7 +6,14 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const admin = require('firebase-admin');
-const pdfParse = require('pdf-parse');
+// pdf-parse is lazy-loaded inside extractActualDataFromPdf() to avoid a
+// crash-on-import bug: the module reads a local test PDF at require() time,
+// which fails on Vercel's read-only serverless filesystem.
+let _pdfParse = null;
+function getPdfParse() {
+  if (!_pdfParse) _pdfParse = require('pdf-parse');
+  return _pdfParse;
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,14 +44,20 @@ app.get('/api/firebase-config', (req, res) => {
 // Fall back to local ./uploads when running locally
 const isVercel = !!process.env.VERCEL;
 const uploadDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+try {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+} catch (err) {
+  console.error('Could not create upload directory:', err);
 }
 
 // Setup local DB file path — /tmp on Vercel, local file otherwise
 // Note: database.json is gitignored; on Vercel the file is seeded from initialDb
 // at first-read time inside getDbData() if the /tmp file doesn't exist yet.
 const dbFilePath = isVercel ? '/tmp/database.json' : path.join(__dirname, 'database.json');
+// Note: /tmp/database.json is seeded lazily by getDbData() on first access (see below),
+// because initialDb is declared later in this file.
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -448,7 +461,7 @@ async function extractActualDataFromPdf(filePath, docType) {
 
   try {
     const dataBuffer = fs.readFileSync(filePath);
-    const parsed = await pdfParse(dataBuffer);
+    const parsed = await getPdfParse()(dataBuffer);
     const text = parsed.text;
 
     // 1. Extract PAN (General check)

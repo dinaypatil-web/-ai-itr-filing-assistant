@@ -1,0 +1,1208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI ITR Filing Assistant | Upload Once. File Smart. Save Maximum.</title>
+  <meta name="description" content="AI-powered Income Tax Return Filing platform for India. Auto-extracts docs, compares regimes, validates credits, and files return safely.">
+  <link rel="stylesheet" href="style.css">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Firebase Compat App & Auth SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <!-- Firebase Project Configuration — loaded from server at runtime (key is in .env, not source) -->
+  <script>
+    // Fetch Firebase config from server so the API key is never committed to source control.
+    // app.js waits for window.firebaseConfigReady before initializing Firebase.
+    window.firebaseConfigReady = fetch('/api/firebase-config')
+      .then(r => r.json())
+      .then(cfg => { window.firebaseConfig = cfg; })
+      .catch(() => { console.error('Could not load Firebase config from server.'); });
+  </script>
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- LEFT SIDEBAR: Branding, Nav, Health & Refund -->
+    <aside class="sidebar-left">
+      <div>
+        <div class="brand-section">
+          <div class="brand-logo">₹</div>
+          <div class="brand-title-wrap">
+            <h1 class="brand-name">TaxAI Assistant</h1>
+            <span class="brand-tagline">Upload Once. File Smart.</span>
+          </div>
+        </div>
+
+        <div class="mode-toggle-container">
+          <div class="mode-selector">
+            <button class="mode-btn active" id="btn-taxpayer-mode" onclick="setAppMode('taxpayer')">
+              <i class="fa-solid fa-user"></i> Taxpayer
+            </button>
+            <button class="mode-btn" id="btn-admin-mode" onclick="setAppMode('admin')">
+              <i class="fa-solid fa-user-shield"></i> Admin
+            </button>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav" id="taxpayer-nav">
+          <div class="nav-item active" onclick="showSection('wizard-section')" id="nav-wizard">
+            <i class="fa-solid fa-magic"></i> Filing Wizard
+          </div>
+          <div class="nav-item" onclick="showSection('calculators-section')" id="nav-calculators">
+            <i class="fa-solid fa-calculator"></i> Custom Engines
+          </div>
+          <div class="nav-item" onclick="showSection('regime-section')" id="nav-regime">
+            <i class="fa-solid fa-scale-balanced"></i> Regime Selector
+          </div>
+          <div class="nav-item" onclick="showSection('dashboard-section')" id="nav-dashboard">
+            <i class="fa-solid fa-chart-line"></i> Main Dashboard
+          </div>
+        </nav>
+
+        <nav class="sidebar-nav" id="admin-nav" style="display: none;">
+          <div class="nav-item active" onclick="showSection('admin-dashboard-section')" id="nav-admin-dashboard">
+            <i class="fa-solid fa-gauge-high"></i> Control Panel
+          </div>
+          <div class="nav-item" onclick="showSection('admin-audit-section')" id="nav-admin-audit">
+            <i class="fa-solid fa-history"></i> Audit Logs
+          </div>
+          <div class="nav-item" onclick="showSection('admin-tickets-section')" id="nav-admin-tickets">
+            <i class="fa-solid fa-ticket"></i> Support & Notices
+          </div>
+        </nav>
+      </div>
+
+      <!-- Left Sidebar Widgets (Only visible for Taxpayer Mode) -->
+      <div class="sidebar-widgets" id="taxpayer-widgets">
+        <!-- Tax Health Score -->
+        <div class="widget-card">
+          <div class="widget-title">
+            <span>Tax Health Score</span>
+            <i class="fa-solid fa-circle-info" title="Score based on matching AIS credits, uploaded documents, and validation."></i>
+          </div>
+          <div class="health-score-container">
+            <div class="health-gauge">
+              <svg class="gauge-svg" width="60" height="60" viewBox="0 0 60 60">
+                <circle class="gauge-bg" cx="30" cy="30" r="27"></circle>
+                <circle class="gauge-fill" id="health-gauge-circle" cx="30" cy="30" r="27"></circle>
+              </svg>
+              <div class="gauge-val" id="health-score-text">60</div>
+            </div>
+            <div class="health-details">
+              <div class="health-label" id="health-rating">Standard</div>
+              <div class="health-desc" id="health-recomm">Upload Form 16 to boost</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Refund Predictor -->
+        <div class="widget-card">
+          <div class="widget-title">
+            <span>Refund Predictor</span>
+            <i class="fa-solid fa-circle-dollar-to-slot"></i>
+          </div>
+          <div class="refund-value" id="refund-predicted-val">₹0</div>
+          <div class="refund-stat">
+            <span>Audit Scrutiny Risk</span>
+            <span id="scrutiny-risk-level" style="font-weight: 700; color: var(--color-success);">Low</span>
+          </div>
+          <div class="scrutiny-meter">
+            <div class="scrutiny-fill" id="scrutiny-risk-bar"></div>
+          </div>
+          <div class="refund-stat" style="margin-top: 10px;">
+            <span>Est. Processing</span>
+            <span id="processing-time-text">-- Days</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER CANVAS: Active page/dashboard/wizard -->
+    <main class="main-canvas" id="main-content-canvas">
+      
+      <!-- HEADER -->
+      <header class="canvas-header">
+        <div>
+          <h2 class="canvas-title" id="page-title">ITR Filing Assistant</h2>
+          <p class="canvas-subtitle" id="page-subtitle">File your Indian Income Tax Return in minutes using AI.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-size: 12px; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border-color);">
+            AY 2026-27 (FY 2025-26)
+          </span>
+          <!-- User Profile Card (hidden until login) -->
+          <div id="user-profile-card" style="display:none; align-items:center; gap:10px; background:rgba(255,255,255,0.06); border:1px solid var(--border-color); border-radius:24px; padding:5px 14px 5px 6px; cursor:default;">
+            <div id="user-avatar-wrap" style="position:relative; width:32px; height:32px; flex-shrink:0;">
+              <img id="user-avatar-photo" src="" alt="Profile" style="width:32px; height:32px; border-radius:50%; object-fit:cover; display:none;">
+              <div id="user-avatar-initials" style="width:32px; height:32px; border-radius:50%; background:var(--color-primary); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;">?</div>
+            </div>
+            <div style="line-height:1.3;">
+              <div id="user-display-name" style="font-weight:700; font-size:12px; color:var(--text-primary); white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;">Loading...</div>
+              <div id="user-display-email" style="font-size:10px; color:var(--text-muted); white-space:nowrap; max-width:120px; overflow:hidden; text-overflow:ellipsis;"></div>
+            </div>
+            <button onclick="signOut()" title="Sign Out" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:13px; border-radius:6px; transition:color 0.2s;" onmouseover="this.style.color='var(--color-error)'" onmouseout="this.style.color='var(--text-muted)'">
+              <i class="fa-solid fa-right-from-bracket"></i>
+            </button>
+          </div>
+          <!-- Fallback simple avatar (pre-login) -->
+          <div id="logged-user-avatar" style="width:32px; height:32px; border-radius:50%; background:var(--color-primary); color:white; display:none; align-items:center; justify-content:center; font-weight:700; font-size:13px;">JD</div>
+        </div>
+      </header>
+
+      <!-- ===== PHONE COLLECTION MODAL (Post-Google Login) ===== -->
+      <div id="phone-collect-modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.7); backdrop-filter:blur(8px); align-items:center; justify-content:center;">
+        <div style="background:var(--surface-card); border:1px solid var(--border-color); border-radius:20px; padding:36px; max-width:420px; width:90%; text-align:center; box-shadow:0 24px 60px rgba(0,0,0,0.5);">
+          <div style="width:60px; height:60px; background:var(--color-primary-glow); border-radius:50%; margin:0 auto 20px; display:flex; align-items:center; justify-content:center; font-size:26px;">📱</div>
+          <h3 style="margin:0 0 6px; font-size:20px;">Link Your Mobile Number</h3>
+          <p style="color:var(--text-muted); font-size:13px; margin:0 0 24px;">Your phone number is required for Aadhaar-linked e-Verification of your ITR. It is also used to receive notices from the Income Tax Department.</p>
+          
+          <div id="phone-collect-step1">
+            <div style="display:flex; gap:10px; margin-bottom:12px;">
+              <span style="background:rgba(255,255,255,0.06); border:1px solid var(--border-color); border-radius:10px; padding:12px 14px; font-size:13px; color:var(--text-muted); white-space:nowrap;">+91</span>
+              <input id="phone-collect-input" type="tel" maxlength="10" placeholder="10-digit mobile number" style="flex:1; background:rgba(255,255,255,0.06); border:1px solid var(--border-color); border-radius:10px; padding:12px 14px; font-size:14px; color:var(--text-primary); outline:none;">
+            </div>
+            <!-- Dedicated reCAPTCHA for phone linking (fresh verifier, not reused from login) -->
+            <div id="phone-link-recaptcha" style="display:flex; justify-content:center; margin-bottom:12px;"></div>
+            <button id="btn-send-phone-otp" class="btn btn-primary" style="width:100%;" onclick="sendPhoneOTPForLinking()">
+              <i class="fa-solid fa-paper-plane"></i> Send Verification Code
+            </button>
+            <button onclick="skipPhoneCollection()" style="background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; margin-top:14px; display:block; width:100%;">Skip for now (can be added later)</button>
+          </div>
+
+          <div id="phone-collect-step2" style="display:none;">
+            <p style="font-size:13px; color:var(--text-secondary); margin:0 0 14px;">Enter the 6-digit OTP sent to your mobile</p>
+            <div style="display:flex; gap:10px; margin-bottom:12px;">
+              <input id="phone-collect-otp" type="text" maxlength="6" placeholder="6-digit OTP" style="flex:1; background:rgba(255,255,255,0.06); border:1px solid var(--border-color); border-radius:10px; padding:12px 14px; font-size:14px; color:var(--text-primary); outline:none; text-align:center; letter-spacing:6px;">
+            </div>
+            <button id="btn-verify-phone-otp" class="btn btn-primary" style="width:100%;" onclick="verifyPhoneOTPForLinking()">
+              <i class="fa-solid fa-check-circle"></i> Verify & Link Number
+            </button>
+            <button onclick="document.getElementById('phone-collect-step1').style.display='block'; document.getElementById('phone-collect-step2').style.display='none';" style="background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; margin-top:14px; display:block; width:100%;">← Back</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- VIEW 1: FILING WIZARD (DEFAULT) -->
+      <section id="wizard-section" class="wizard-step-content active">
+        <!-- STEPS TRACKER -->
+        <div class="steps-tracker">
+          <div class="step-bubble-container active" id="step-track-1">
+            <div class="step-bubble">1</div>
+            <span class="step-label">Profile</span>
+          </div>
+          <div class="step-bubble-container" id="step-track-2">
+            <div class="step-bubble">2</div>
+            <span class="step-label">Documents</span>
+          </div>
+          <div class="step-bubble-container" id="step-track-3">
+            <div class="step-bubble">3</div>
+            <span class="step-label">OCR Extract</span>
+          </div>
+          <div class="step-bubble-container" id="step-track-4">
+            <div class="step-bubble">4</div>
+            <span class="step-label">Gov Check</span>
+          </div>
+          <div class="step-bubble-container" id="step-track-5">
+            <div class="step-bubble">5</div>
+            <span class="step-label">Calculators</span>
+          </div>
+          <div class="step-bubble-container" id="step-track-6">
+            <div class="step-bubble">6</div>
+            <span class="step-label">Comparison</span>
+          </div>
+          <div class="step-bubble-container" id="step-track-7">
+            <div class="step-bubble">7</div>
+            <span class="step-label">Validation</span>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 1: LOGIN & PROFILE BUILDER -->
+        <div id="wizard-step-1" class="glass-card active-step-subview">
+          <div class="login-wrap" id="login-form-container">
+            <h3 style="font-family: var(--font-display); font-size: 20px; font-weight: 700; text-align: center; margin-bottom: 6px;">Sign in to start tax filing</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); text-align: center; margin-bottom: 16px;">Securely retrieve your profile, AIS credits, and Form 26AS data.</p>
+
+            <div class="login-options">
+              <div class="form-group" style="margin-bottom: 4px;">
+                <label class="form-label" style="font-size: 12px;">Mobile Number / Aadhaar</label>
+                <input type="tel" class="form-control" id="login-phone" placeholder="e.g. 9876543210" maxlength="12" autocomplete="tel">
+              </div>
+              <button class="btn btn-primary" id="btn-request-otp" onclick="requestOTP()">
+                <i class="fa-solid fa-key"></i> Request Mobile OTP
+              </button>
+
+              <div class="login-divider">OR</div>
+
+              <button class="btn btn-secondary" onclick="loginWithGoogle()">
+                <i class="fa-brands fa-google" style="color: #ea4335;"></i> Sign in with Google
+              </button>
+            </div>
+
+            <!-- Invisible Firebase reCAPTCHA Container -->
+            <div id="recaptcha-container"></div>
+
+            <!-- OTP Input field (hidden initially, shown after OTP request) -->
+            <div id="otp-input-area" style="display: none; width: 100%; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label" style="font-size: 12px; margin-bottom: 8px;">
+                  <i class="fa-solid fa-shield-halved" style="color: var(--color-primary);"></i>
+                  Enter 6-Digit OTP sent to your mobile
+                </label>
+                <input type="number" class="form-control" id="login-otp" placeholder="• • • • • •" maxlength="6"
+                  style="text-align: center; font-size: 22px; letter-spacing: 8px; font-weight: 700;"
+                  oninput="this.value = this.value.slice(0,6)">
+              </div>
+              <button class="btn btn-success" id="btn-verify-otp" onclick="verifyOTP()" style="width: 100%;">
+                <i class="fa-solid fa-check-circle"></i> Verify and Continue
+              </button>
+              <p class="login-info-banner" style="margin-top: 10px;">
+                <i class="fa-solid fa-shield-halved" style="color: var(--color-success);"></i>
+                Your OTP is sent to your registered mobile number.
+              </p>
+            </div>
+          </div>
+
+
+          <div id="profile-builder-container" style="display: none;">
+            <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">AI Tax Profile Builder</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Select all that apply to you. The assistant will construct a personalized document checklist and flag necessary tax schedules.</p>
+            
+            <div class="tiles-grid">
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-salaried" checked onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">👔</span>
+                  <span class="tile-title">Salaried Employee</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-business" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">🏢</span>
+                  <span class="tile-title">Business Owner</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-freelancer" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">💻</span>
+                  <span class="tile-title">Freelancer/Pro</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-investor" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">📈</span>
+                  <span class="tile-title">Investor (Equity/MF)</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-landlord" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">🏠</span>
+                  <span class="tile-title">Property Landlord</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-retired" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">👵</span>
+                  <span class="tile-title">Retired / Pensioner</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-nri" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">✈</span>
+                  <span class="tile-title">NRI Status</span>
+                </div>
+              </label>
+              <label class="tile-checkbox">
+                <input type="checkbox" id="profile-crypto" onchange="updateProfileChecklist()">
+                <div class="tile-card">
+                  <span class="tile-icon">🪙</span>
+                  <span class="tile-title">Virtual Assets / Crypto</span>
+                </div>
+              </label>
+            </div>
+
+            <div class="step-navigation-bar">
+              <div></div>
+              <button class="btn btn-primary" onclick="nextWizardStep(1)">Proceed to Documents <i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 2: DOCUMENT CHECKLIST & UPLOAD -->
+        <div id="wizard-step-2" class="glass-card" style="display: none;">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">Document Dashboard & AI Upload</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Upload financial files. The built-in parser will auto-categorize and extract numbers directly.</p>
+
+          <div class="grid-2">
+            <!-- Left col: File Upload -->
+            <div>
+              <div class="upload-container" id="drop-zone" onclick="triggerFileInput()">
+                <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+                <h4 style="font-size: 16px; margin-bottom: 4px;">Drag & Drop or click to browse</h4>
+                <p style="font-size: 11px; color: var(--text-muted);">Supports PDF, ZIP, Images, Excel, CSV up to 10MB</p>
+                <input type="file" id="file-uploader-input" style="display: none;" multiple onchange="handleFileSelect(event)">
+                
+                <div class="upload-sources">
+                  <div class="source-tag"><i class="fa-solid fa-lock"></i> DigiLocker</div>
+                  <div class="source-tag"><i class="fa-brands fa-google-drive"></i> Drive</div>
+                  <div class="source-tag"><i class="fa-brands fa-dropbox"></i> Dropbox</div>
+                  <div class="source-tag"><i class="fa-solid fa-envelope"></i> Email</div>
+                </div>
+              </div>
+
+              <!-- Uploaded Files Preview -->
+              <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600;">Uploaded Files</h4>
+              <div class="uploaded-files-preview" id="files-preview-list">
+                <div style="text-align:center; padding:24px; color:var(--text-muted); font-size:12px;">
+                  <i class="fa-solid fa-cloud-arrow-up" style="font-size:28px; display:block; margin-bottom:8px; opacity:0.4;"></i>
+                  No documents uploaded yet. Drag & drop or click to upload.
+                </div>
+              </div>
+            </div>
+
+            <!-- Right col: Tailored Checklist -->
+            <div>
+              <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600; display: flex; justify-content: space-between;">
+                <span>Required Documents</span>
+                <span id="checklist-progress" style="font-size: 11px; color: var(--color-primary);">1 / 3 Uploaded</span>
+              </h4>
+              <div class="document-list" id="checklist-document-items">
+                <!-- Checklist elements generated dynamically -->
+              </div>
+            </div>
+          </div>
+
+          <div class="step-navigation-bar">
+            <button class="btn btn-secondary" onclick="prevWizardStep(2)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" onclick="nextWizardStep(2)">Proceed to OCR Extraction <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 3: OCR EXTRACTION RESULTS -->
+        <div id="wizard-step-3" class="glass-card" style="display: none;">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">OCR + AI Extracted Parameters</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">AI has read your uploaded files and populated these fields. No typing is necessary, but you can correct them if needed.</p>
+
+          <div class="ui-alert info" style="margin-bottom: 20px;">
+            <i class="fa-solid fa-wand-magic-sparkles ui-alert-icon"></i>
+            <div>
+              <strong>AI Document Engine Summary:</strong> Successfully extracted details from Form 16 (Part B) and HRA Rental Receipts. Confirm and adjust computed metrics below.
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div>
+              <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600; color: var(--color-primary);">extracted income Details</h4>
+              
+              <div class="form-group">
+                <label class="form-label">Gross Salary (Section 17(1))</label>
+                <input type="number" class="form-control" id="ocr-gross-salary" value="1250000" onchange="recalculateAll()">
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">TDS on Salary (Employer Deducted)</label>
+                <input type="number" class="form-control" id="ocr-tds-salary" value="64500" onchange="recalculateAll()">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Savings Interest (80TTA source)</label>
+                <input type="number" class="form-control" id="ocr-savings-interest" value="12500" onchange="recalculateAll()">
+              </div>
+            </div>
+
+            <div>
+              <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600; color: var(--color-accent);">extracted deductions (Old Regime)</h4>
+              
+              <div class="form-group">
+                <label class="form-label">80C Investments (PPF, EPF, ELSS)</label>
+                <input type="number" class="form-control" id="ocr-ded-80c" value="150000" onchange="recalculateAll()">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">80D Health Insurance Premium</label>
+                <input type="number" class="form-control" id="ocr-ded-80d" value="25000" onchange="recalculateAll()">
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">80CCD(1B) NPS Investment</label>
+                <input type="number" class="form-control" id="ocr-ded-nps" value="50000" onchange="recalculateAll()">
+              </div>
+            </div>
+          </div>
+
+          <div class="step-navigation-bar">
+            <button class="btn btn-secondary" onclick="prevWizardStep(3)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" onclick="nextWizardStep(3)">Compare with Government Data <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 4: GOVERNMENT DATA FETCH & RECONCILIATION -->
+        <div id="wizard-step-4" class="glass-card" style="display: none;">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">Government Portal Reconciliation</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Reconcile extracted document data against government records (AIS, TIS, Form 26AS).</p>
+
+          <div id="gov-fetch-trigger-container" style="text-align: center; padding: 30px;">
+            <button class="btn btn-success btn-sm" onclick="triggerGovDataFetch()">
+              <i class="fa-solid fa-sync fa-spin"></i> Fetch AIS/TIS/26AS Data Now
+            </button>
+            <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">Requires authentication consent. Fetches salary credit, interest income, and TDS deposits.</p>
+          </div>
+
+          <div id="reconciliation-table-container" style="display: none;">
+            <div class="ui-alert success" id="recon-alert-status" style="margin-bottom: 20px;">
+              <i class="fa-solid fa-circle-check ui-alert-icon"></i>
+              <div>
+                <strong>Reconciliation Verified:</strong> Salary credit and TDS metrics have been matched with AIS database. 1 minor discrepancy in Savings Interest detected.
+              </div>
+            </div>
+
+            <table class="recon-table">
+              <thead>
+                <tr>
+                  <th>Income / Deduction Parameter</th>
+                  <th>Extracted from Docs</th>
+                  <th>Government AIS / 26AS</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Salary (Section 17)</td>
+                  <td id="recon-doc-sal">₹12,50,000</td>
+                  <td id="recon-gov-sal">₹12,50,000</td>
+                  <td><span class="recon-badge match" id="recon-badge-sal">✔ Matched</span></td>
+                </tr>
+                <tr>
+                  <td>TDS on Salary (26AS)</td>
+                  <td id="recon-doc-tds">₹64,500</td>
+                  <td id="recon-gov-tds">₹64,500</td>
+                  <td><span class="recon-badge match" id="recon-badge-tds">✔ Matched</span></td>
+                </tr>
+                <tr>
+                  <td>Interest on Savings Accounts</td>
+                  <td id="recon-doc-interest">₹12,500</td>
+                  <td id="recon-gov-interest">₹14,500</td>
+                  <td><span class="recon-badge mismatch" id="recon-badge-interest" style="cursor: pointer;" onclick="openReconMismatch()">⚠ Diff Found</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="error-fix-box" id="interest-mismatch-fix" style="display: none;">
+              <div class="error-fix-title">
+                <i class="fa-solid fa-triangle-exclamation"></i> AIS Savings Account Interest Mismatch
+              </div>
+              <div class="error-fix-desc">
+                Government AIS shows ₹14,500 from HDFC Bank and ICICI Bank, but your inputs list ₹12,500. It is recommended to import the extra ₹2,000 to prevent automated Income Tax notices under Sec 143(1).
+              </div>
+              <div>
+                <button class="btn btn-secondary btn-sm" onclick="acceptGovValue('interest', 14500)">Use Govt Value (₹14,500)</button>
+                <button class="btn btn-secondary btn-sm" onclick="ignoreGovValue()">Keep My Value (₹12,500)</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-navigation-bar">
+            <button class="btn btn-secondary" onclick="prevWizardStep(4)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" onclick="nextWizardStep(4)">Proceed to Calculators <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 5: CALCULATORS & ENGINES -->
+        <div id="wizard-step-5" class="glass-card" style="display: none;">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">Deductions & Specific Income Calculators</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Configure specific claim parameters: HRA, Capital Gains, Home Loans, and Business Income rules.</p>
+
+          <div style="display: flex; gap: 12px; margin-bottom: 20px; overflow-x: auto; padding-bottom: 8px;">
+            <button class="btn btn-secondary btn-sm active" id="calc-tab-btn-hra" onclick="switchCalcSubTab('hra')">HRA Calculator</button>
+            <button class="btn btn-secondary btn-sm" id="calc-tab-btn-cg" onclick="switchCalcSubTab('cg')">Capital Gains Engine</button>
+            <button class="btn btn-secondary btn-sm" id="calc-tab-btn-hl" onclick="switchCalcSubTab('hl')">Home Loan Assistant</button>
+            <button class="btn btn-secondary btn-sm" id="calc-tab-btn-bus" onclick="switchCalcSubTab('bus')">Presumptive Business (44AD/ADA)</button>
+          </div>
+
+          <!-- SUB-TAB: HRA CALCULATOR -->
+          <div id="calc-subtab-hra" class="calc-subview">
+            <div class="grid-2">
+              <div>
+                <div class="form-group">
+                  <label class="form-label">Basic Salary (Yearly)</label>
+                  <input type="number" class="form-control" id="hra-basic" value="600000" onchange="runHraCalculator()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">HRA Received from Employer</label>
+                  <input type="number" class="form-control" id="hra-received" value="240000" onchange="runHraCalculator()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Total Rent Paid in Year</label>
+                  <input type="number" class="form-control" id="hra-rent-paid" value="180000" onchange="runHraCalculator()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">City Category</label>
+                  <select class="form-control" id="hra-city-metro" onchange="runHraCalculator()">
+                    <option value="metro">Metro (Delhi, Mumbai, Kolkata, Chennai) - 50% Basic</option>
+                    <option value="nonmetro" selected>Non-Metro - 40% Basic</option>
+                  </select>
+                </div>
+              </div>
+              <div style="background: rgba(0, 0, 0, 0.2); padding: 24px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; justify-content: center; gap: 16px;">
+                <h4 style="font-weight: 700; color: var(--color-primary);">HRA Exemption Summary</h4>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 8px;">
+                  <span>Exempt HRA (Section 10(13A))</span>
+                  <span style="font-weight: 700; color: var(--color-success);" id="hra-exempt-val">₹1,20,000</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding-top: 4px;">
+                  <span>Taxable HRA portion</span>
+                  <span id="hra-taxable-val">₹1,20,000</span>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="applyHraExemption()">Apply Exemption to Form</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-TAB: CAPITAL GAINS ENGINE -->
+          <div id="calc-subtab-cg" class="calc-subview" style="display: none;">
+            <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+              <h4 style="font-weight: 700;">Equity Shares & Mutual Funds Gains</h4>
+              <button class="btn btn-secondary btn-sm" onclick="addCapitalGainRow()"><i class="fa-solid fa-plus"></i> Add Transaction</button>
+            </div>
+            
+            <div style="overflow-x: auto;">
+              <table class="calc-table" id="cg-transactions-table">
+                <thead>
+                  <tr>
+                    <th>Asset Category</th>
+                    <th>Purchase Date</th>
+                    <th>Sale Date</th>
+                    <th>Purchase Value</th>
+                    <th>Sale Value</th>
+                    <th>STCG/LTCG Result</th>
+                    <th>Tax Liability</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Rows generated dynamically -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="stats-row" style="margin-top: 16px;">
+              <div class="widget-card">
+                <span class="form-label" style="margin-bottom: 4px;">Total Short-term Gains (STCG)</span>
+                <div style="font-weight: 700; font-size: 18px;" id="cg-total-stcg">₹0</div>
+              </div>
+              <div class="widget-card">
+                <span class="form-label" style="margin-bottom: 4px;">Total Long-term Gains (LTCG)</span>
+                <div style="font-weight: 700; font-size: 18px;" id="cg-total-ltcg">₹0</div>
+              </div>
+              <div class="widget-card">
+                <span class="form-label" style="margin-bottom: 4px;">Net Capital Gains Tax</span>
+                <div style="font-weight: 700; font-size: 18px; color: var(--color-error);" id="cg-total-tax">₹0</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-TAB: HOME LOAN ASSISTANT -->
+          <div id="calc-subtab-hl" class="calc-subview" style="display: none;">
+            <div class="grid-2">
+              <div>
+                <div class="form-group">
+                  <label class="form-label">Yearly Interest Paid (Sec 24(b))</label>
+                  <input type="number" class="form-control" id="hl-interest" value="180000" onchange="runHomeLoanCalculator()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Principal Repaid (Sec 80C limit)</label>
+                  <input type="number" class="form-control" id="hl-principal" value="65000" onchange="runHomeLoanCalculator()">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Property Ownership & Usage</label>
+                  <select class="form-control" id="hl-occupancy" onchange="runHomeLoanCalculator()">
+                    <option value="self" selected>Self Occupied Property (Limit: ₹2,00,000)</option>
+                    <option value="letout">Let-Out / Rented (No Limit, offset against rent)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Ownership Split (Your Share %)</label>
+                  <input type="number" class="form-control" id="hl-share" value="100" max="100" min="1" onchange="runHomeLoanCalculator()">
+                </div>
+              </div>
+              <div style="background: rgba(0, 0, 0, 0.2); padding: 24px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; justify-content: center; gap: 16px;">
+                <h4 style="font-weight: 700; color: var(--color-accent);">Eligible Home Loan Deductions</h4>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 8px;">
+                  <span>Sec 24(b) Interest Claim</span>
+                  <span style="font-weight: 700; color: var(--color-success);" id="hl-eligible-interest">₹1,80,000</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 8px;">
+                  <span>Sec 80C Principal (added to general 80C)</span>
+                  <span style="font-weight: 700;" id="hl-eligible-principal">₹65,000</span>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="applyHomeLoanDeductions()">Apply Loan Deductions</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SUB-TAB: PRESUMPTIVE BUSINESS -->
+          <div id="calc-subtab-bus" class="calc-subview" style="display: none;">
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">Taxpayers declaring presumptive business income without detailed audit compliance (ITR-4).</p>
+            
+            <div class="grid-2">
+              <div>
+                <div class="form-group">
+                  <label class="form-label">Select Business Section</label>
+                  <select class="form-control" id="pres-section" onchange="runPresumptiveCalculations()">
+                    <option value="44ad">Section 44AD - Business (6% / 8% profit)</option>
+                    <option value="44ada">Section 44ADA - Professional/Freelance (50% profit)</option>
+                    <option value="44ae">Section 44AE - Goods Carriages (Per truck/month)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Gross Receipts / Turnover</label>
+                  <input type="number" class="form-control" id="pres-gross-receipts" value="0" onchange="runPresumptiveCalculations()">
+                </div>
+                <div class="form-group" id="pres-digital-group">
+                  <label class="form-label">Receipts Received via Digital Banking Modes</label>
+                  <input type="number" class="form-control" id="pres-digital-receipts" value="0" onchange="runPresumptiveCalculations()">
+                </div>
+              </div>
+              <div style="background: rgba(0, 0, 0, 0.2); padding: 24px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; flex-direction: column; justify-content: center; gap: 16px;">
+                <h4 style="font-weight: 700; color: var(--color-primary);">Presumptive Net Income Result</h4>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 8px;">
+                  <span>Min Legally Required Profit</span>
+                  <span style="font-weight: 700;" id="pres-min-profit">₹0</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 8px;">
+                  <span>Deemed Taxable Business Income</span>
+                  <span style="font-weight: 700; color: var(--color-success);" id="pres-taxable-income">₹0</span>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="applyBusinessIncome()">Add to Business Income Summary</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-navigation-bar">
+            <button class="btn btn-secondary" onclick="prevWizardStep(5)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" onclick="nextWizardStep(5)">Review Old vs New Slabs <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 6: TAX SAVING ADVISOR & REGIME SELECTOR -->
+        <div id="wizard-step-6" class="glass-card" style="display: none;">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">Regime Switcher & Tax Advisory</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">AI evaluation of Old vs New regimes based on current deductions.</p>
+
+          <div class="regime-cards-container">
+            <!-- Old Regime Card -->
+            <div class="regime-card" id="regime-card-old" onclick="selectRegime('old')">
+              <div class="regime-name">
+                <span>Old Tax Regime</span>
+                <span class="regime-badge" style="background-color: var(--text-muted);">With Exemptions</span>
+              </div>
+              <p style="font-size: 12px; color: var(--text-secondary);">Allows Chapter VI-A deductions, HRA, and Home Loan interest claims.</p>
+              <div class="regime-tax-number" id="regime-tax-old">₹0</div>
+              <p style="font-size: 11px; color: var(--text-muted);" id="regime-tax-old-details">Net taxable: ₹0</p>
+            </div>
+
+            <!-- New Regime Card -->
+            <div class="regime-card selected" id="regime-card-new" onclick="selectRegime('new')">
+              <div class="regime-name">
+                <span>New Tax Regime</span>
+                <span class="regime-badge" id="new-regime-star">⭐ Recommended</span>
+              </div>
+              <p style="font-size: 12px; color: var(--text-secondary);">Lower tax slabs with ₹75,000 Standard Deduction. Zero tax up to ₹12 Lakh taxable income (Sec 87A). Deductions are foregone.</p>
+              <div class="regime-tax-number" id="regime-tax-new">₹0</div>
+              <p style="font-size: 11px; color: var(--text-muted);" id="regime-tax-new-details">Net taxable: ₹0</p>
+            </div>
+          </div>
+
+          <!-- Detailed Tax Calculation Sheet Drawer -->
+          <div id="tax-calculation-sheet" class="glass-card" style="margin-top: 10px; margin-bottom: 24px; border: 1px dashed var(--color-primary); display: none; padding: 20px; background: rgba(0,0,0,0.3);">
+            <!-- Content dynamically generated -->
+          </div>
+
+          <!-- Plain language advice explanation -->
+          <div class="ui-alert info" style="margin-bottom: 20px;">
+            <i class="fa-solid fa-brain ui-alert-icon"></i>
+            <div>
+              <strong>AI Advice Explainer:</strong> <span id="regime-ai-advice">Loading tax suggestions...</span>
+            </div>
+          </div>
+
+          <!-- AI Tax Saving Recommendations -->
+          <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600;">AI Recommendations: How to Save More Tax</h4>
+          <div class="advisor-list" id="advisor-saving-items">
+            <!-- Recommendations dynamically generated -->
+          </div>
+
+          <div class="step-navigation-bar">
+            <button class="btn btn-secondary" onclick="prevWizardStep(6)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <button class="btn btn-primary" onclick="nextWizardStep(6)">Run Validation Engine <i class="fa-solid fa-arrow-right"></i></button>
+          </div>
+        </div>
+
+        <!-- WIZARD STEP 7: ITR VALIDATION ENGINE & SUBMISSION -->
+        <div id="wizard-step-7" class="glass-card" style="display: none;">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">ITR Check & Filing Submission</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">The validation engine performs 12+ checks against government validation parameters to prevent queries.</p>
+
+          <div id="validation-running-spinner" style="text-align: center; padding: 40px;">
+            <i class="fa-solid fa-circle-notch fa-spin" style="font-size: 40px; color: var(--color-primary); margin-bottom: 16px;"></i>
+            <h4 style="font-size: 16px;">Running validation checks...</h4>
+          </div>
+
+          <div id="validation-results-container" style="display: none;">
+            <div id="validation-summary-card">
+              <!-- Render summary alert dynamically -->
+            </div>
+
+            <div class="document-list" id="validation-rules-list" style="margin-top: 16px;">
+              <!-- Individual rule checks rendered here -->
+            </div>
+
+            <!-- Error fixes block -->
+            <div class="error-fix-box" id="itr-error-fix-block" style="display: none;">
+              <div class="error-fix-title" id="itr-error-title">IFSC Bank Code Mismatch</div>
+              <div class="error-fix-desc" id="itr-error-desc">Your bank profile lists an incorrect IFSC code style. Please check your bank book.</div>
+              <div>
+                <input type="text" class="form-control" id="itr-fix-input" style="max-width: 250px; display: inline-block; margin-right: 12px; margin-bottom: 8px;" placeholder="Enter corrected code">
+                <button class="btn btn-primary btn-sm" onclick="applyItrErrorFix()">Apply Fix</button>
+              </div>
+            </div>
+
+            <!-- Submission Options -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 24px; margin-top: 24px;" id="submission-trigger-area">
+              <h4 style="font-weight: 700; margin-bottom: 12px;">Submission Flow</h4>
+              <div class="grid-2">
+                <div style="background: rgba(59, 130, 246, 0.05); border: 1px solid var(--color-primary); padding: 20px; border-radius: 12px;">
+                  <h5 style="font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-server" style="color: var(--color-primary);"></i> Portal Integration
+                  </h5>
+                  <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">Generated validated JSON pushes automatically to the IT Portal e-Filing API endpoints with your OTP consent.</p>
+                  <button class="btn btn-primary btn-sm btn-full" onclick="submitFilingWorkflow('api')">Submit and e-Verify Return</button>
+                </div>
+                <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); padding: 20px; border-radius: 12px;">
+                  <h5 style="font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-file-export"></i> Assisted Offline Mode
+                  </h5>
+                  <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">Download the official Government Schema JSON and use offline utility to upload directly on portal.</p>
+                  <button class="btn btn-secondary btn-sm btn-full" onclick="submitFilingWorkflow('offline')">Download Schema JSON</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-navigation-bar">
+            <button class="btn btn-secondary" onclick="prevWizardStep(7)"><i class="fa-solid fa-arrow-left"></i> Back</button>
+            <div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2: CUSTOM ENGINES TAB -->
+      <section id="calculators-section" class="wizard-step-content">
+        <div class="glass-card">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">Specific Calculator Modules</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Jump directly into our standalone computation calculators to evaluate specific clauses.</p>
+          
+          <div class="stats-row" style="margin-bottom: 24px;">
+            <div class="widget-card" style="cursor: pointer;" onclick="openCalcSubtabFromOutside('hra')">
+              <i class="fa-solid fa-home" style="font-size: 20px; color: var(--color-primary); margin-bottom: 8px;"></i>
+              <h4 style="font-size: 14px; font-weight: 600;">HRA Exemption</h4>
+              <p style="font-size: 11px; color: var(--text-muted);">Compare actual rent paid with Basic Salary threshold exemptions.</p>
+            </div>
+            <div class="widget-card" style="cursor: pointer;" onclick="openCalcSubtabFromOutside('cg')">
+              <i class="fa-solid fa-chart-line" style="font-size: 20px; color: var(--color-accent); margin-bottom: 8px;"></i>
+              <h4 style="font-size: 14px; font-weight: 600;">Capital Gains</h4>
+              <p style="font-size: 11px; color: var(--text-muted);">Assess STCG and LTCG taxes on stocks, mutual funds, or gold.</p>
+            </div>
+            <div class="widget-card" style="cursor: pointer;" onclick="openCalcSubtabFromOutside('hl')">
+              <i class="fa-solid fa-key" style="font-size: 20px; color: var(--color-success); margin-bottom: 8px;"></i>
+              <h4 style="font-size: 14px; font-weight: 600;">Home Loan Interest</h4>
+              <p style="font-size: 11px; color: var(--text-muted);">Deduct principal (80C) and interest (Section 24b) correctly.</p>
+            </div>
+            <div class="widget-card" style="cursor: pointer;" onclick="openCalcSubtabFromOutside('bus')">
+              <i class="fa-solid fa-briefcase" style="font-size: 20px; color: var(--color-warning); margin-bottom: 8px;"></i>
+              <h4 style="font-size: 14px; font-weight: 600;">Presumptive Business</h4>
+              <p style="font-size: 11px; color: var(--text-muted);">Compute profit rates for Sections 44AD/44ADA presumptive limits.</p>
+            </div>
+          </div>
+          
+          <div class="ui-alert info">
+            <i class="fa-solid fa-info-circle ui-alert-icon"></i>
+            <div>
+              <strong>Quick Tip:</strong> Values computed in these calculators are linked to the global return. If you apply the calculation, your Filing Wizard tax summaries will update instantly.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: REGIME COMPARISON VIEW -->
+      <section id="regime-section" class="wizard-step-content">
+        <div class="glass-card">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">Tax Regime Comparison Matrix</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Side-by-side break-down comparing the Old tax regime with the default New tax regime slabs.</p>
+          
+          <table class="recon-table">
+            <thead>
+              <tr>
+                <th>Parameter</th>
+                <th>Old Tax Regime (With Deductions)</th>
+                <th>New Tax Regime (Lower Slabs)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Gross Salary Income</strong></td>
+                <td id="comp-old-gross">₹12,50,000</td>
+                <td id="comp-new-gross">₹12,50,000</td>
+              </tr>
+              <tr>
+                <td>Standard Deduction</td>
+                <td>-₹50,000</td>
+                <td>-₹75,000</td>
+              </tr>
+              <tr>
+                <td>HRA Exemption (Sec 10(13A))</td>
+                <td id="comp-old-hra">-₹1,20,000</td>
+                <td style="color: var(--text-muted);">Not Allowed</td>
+              </tr>
+              <tr>
+                <td>Home Loan Interest (Sec 24(b))</td>
+                <td id="comp-old-hl">-₹1,80,000</td>
+                <td style="color: var(--text-muted);">Not Allowed</td>
+              </tr>
+              <tr>
+                <td>General Investments (Sec 80C)</td>
+                <td id="comp-old-80c">-₹1,50,000</td>
+                <td style="color: var(--text-muted);">Not Allowed</td>
+              </tr>
+              <tr>
+                <td>National Pension System (80CCD)</td>
+                <td id="comp-old-nps">-₹50,000</td>
+                <td style="color: var(--text-muted);">Not Allowed</td>
+              </tr>
+              <tr>
+                <td>Health Insurance Premium (80D)</td>
+                <td id="comp-old-80d">-₹25,000</td>
+                <td style="color: var(--text-muted);">Not Allowed</td>
+              </tr>
+              <tr>
+                <td>Other Taxable Income (Interest)</td>
+                <td id="comp-old-interest">₹12,500</td>
+                <td id="comp-new-interest">₹12,500</td>
+              </tr>
+              <tr style="background: rgba(255, 255, 255, 0.02); font-weight: 700;">
+                <td><strong>Net Taxable Income</strong></td>
+                <td id="comp-old-net">₹6,87,500</td>
+                <td id="comp-new-net">₹11,87,500</td>
+              </tr>
+              <tr style="font-weight: 800; font-size: 16px;">
+                <td><strong>Net Tax Liability</strong></td>
+                <td id="comp-old-tax">₹47,500</td>
+                <td id="comp-new-tax" style="color: var(--color-success);">₹64,250</td>
+              </tr>
+              <tr>
+                <td>Recommended Option</td>
+                <td></td>
+                <td id="comp-new-recommend"><span class="recon-badge match">⭐ Recommended (Saves ₹16,750)</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- VIEW 4: MAIN DASHBOARD OVERVIEW -->
+      <section id="dashboard-section" class="wizard-step-content">
+        <div class="stats-row">
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Gross Income</span>
+              <div class="stat-icon primary"><i class="fa-solid fa-wallet"></i></div>
+            </div>
+            <div class="stat-value" id="dash-gross-val">₹12,62,500</div>
+            <div class="stat-footer">FY 2025-26 credits</div>
+          </div>
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Net Tax Liability</span>
+              <div class="stat-icon warning"><i class="fa-solid fa-piggy-bank"></i></div>
+            </div>
+            <div class="stat-value" id="dash-tax-val">₹64,250</div>
+            <div class="stat-footer">Under <span id="dash-active-regime">New Regime</span></div>
+          </div>
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Tax Deducted (TDS)</span>
+              <div class="stat-icon success"><i class="fa-solid fa-shield-halved"></i></div>
+            </div>
+            <div class="stat-value" id="dash-tds-val">₹64,500</div>
+            <div class="stat-footer">Form 26AS matching</div>
+          </div>
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Return Status</span>
+              <div class="stat-icon success"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+            </div>
+            <div class="stat-value" style="font-size: 18px; color: var(--color-warning);" id="dash-return-status-val">Draft Return</div>
+            <div class="stat-footer">Updated 1 min ago</div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <!-- Documents Widget -->
+          <div class="glass-card">
+            <h4 style="font-weight: 700; margin-bottom: 16px;">Linked Financial Documents</h4>
+            <div class="document-list">
+              <div class="document-item">
+                <div class="doc-info">
+                  <i class="fa-solid fa-file-pdf" style="font-size: 20px; color: #ef4444;"></i>
+                  <div>
+                    <div style="font-weight: 600;">Form 16 (Part A & B)</div>
+                    <div style="font-size: 10px; color: var(--text-muted);">Verified against Income Tax Portal • 2.4MB</div>
+                  </div>
+                </div>
+                <div class="doc-status-badge success"><i class="fa-solid fa-check"></i></div>
+              </div>
+              <div class="document-item">
+                <div class="doc-info">
+                  <i class="fa-solid fa-file-invoice-dollar" style="font-size: 20px; color: var(--color-primary);"></i>
+                  <div>
+                    <div style="font-weight: 600;">Annual Information Statement (AIS)</div>
+                    <div style="font-size: 10px; color: var(--text-muted);">Portal fetched record • 188KB</div>
+                  </div>
+                </div>
+                <div class="doc-status-badge success"><i class="fa-solid fa-check"></i></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Refund status check -->
+          <div class="glass-card">
+            <h4 style="font-weight: 700; margin-bottom: 16px;">Tax Actions Required</h4>
+            <div class="advisor-list" id="dash-actions-list">
+              <!-- Dynamically rendered actions -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 5: ADMIN PORTAL DASHBOARD -->
+      <section id="admin-dashboard-section" class="wizard-step-content">
+        <div class="stats-row">
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Total Active Filings</span>
+              <div class="stat-icon primary"><i class="fa-solid fa-users"></i></div>
+            </div>
+            <div class="stat-value">1,480</div>
+            <div class="stat-footer">Today: +42 users</div>
+          </div>
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Successful API Submissions</span>
+              <div class="stat-icon success"><i class="fa-solid fa-circle-check"></i></div>
+            </div>
+            <div class="stat-value">1,244</div>
+            <div class="stat-footer">ERI API Direct Submissions</div>
+          </div>
+          <div class="glass-card stat-card">
+            <div class="stat-header">
+              <span>Pending CA Review</span>
+              <div class="stat-icon warning"><i class="fa-solid fa-user-clock"></i></div>
+            </div>
+            <div class="stat-value">18</div>
+            <div class="stat-footer">Avg. Wait: 22 mins</div>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <h4 style="font-weight: 700; margin-bottom: 16px;">User Filings Management</h4>
+          <div style="overflow-x: auto;">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Taxpayer Name</th>
+                  <th>PAN</th>
+                  <th>ITR Form</th>
+                  <th>Regime</th>
+                  <th>Gross Income</th>
+                  <th>Tax Health</th>
+                  <th>Filing Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Vikram Sharma</strong></td>
+                  <td>ABCDE1234F</td>
+                  <td>ITR-1</td>
+                  <td>New Slabs</td>
+                  <td>₹12,62,500</td>
+                  <td><span class="recon-badge match">92 / 100</span></td>
+                  <td><span class="badge-status pending">Pending OTP</span></td>
+                  <td><button class="btn btn-secondary btn-sm" onclick="adminReviewUser('Vikram Sharma', 'ITR-1')">Review Details</button></td>
+                </tr>
+                <tr>
+                  <td><strong>Priya Patel</strong></td>
+                  <td>FGHIJ5678K</td>
+                  <td>ITR-4 (Pres)</td>
+                  <td>New Slabs</td>
+                  <td>₹18,50,000</td>
+                  <td><span class="recon-badge match">98 / 100</span></td>
+                  <td><span class="badge-status active">Filed</span></td>
+                  <td><button class="btn btn-secondary btn-sm" onclick="adminReviewUser('Priya Patel', 'ITR-4')">Review Details</button></td>
+                </tr>
+                <tr>
+                  <td><strong>Anil K. Verma</strong></td>
+                  <td>LMOPQ9012Z</td>
+                  <td>ITR-2</td>
+                  <td>Old Regime</td>
+                  <td>₹8,20,000</td>
+                  <td><span class="recon-badge mismatch">72 / 100</span></td>
+                  <td><span class="badge-status closed">Drafting</span></td>
+                  <td><button class="btn btn-secondary btn-sm" onclick="adminReviewUser('Anil K. Verma', 'ITR-2')">Review Details</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 6: ADMIN AUDIT LOGS -->
+      <section id="admin-audit-section" class="wizard-step-content">
+        <div class="glass-card">
+          <h3 style="font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 8px;">System Security & Audit Trail</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">Real-time logs showing user consent approvals, AES-256 document encryptions, and portal e-filing actions.</p>
+          
+          <div style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border-color); padding: 16px; border-radius: 12px; font-family: monospace; font-size: 12px; line-height: 1.6; max-height: 450px; overflow-y: auto;" id="admin-audit-log-box">
+            <div><span style="color: var(--text-muted);">[2026-07-22 23:02:11]</span> <span style="color: var(--color-success); font-weight:700;">[CONSENT]</span> Taxpayer Vikram Sharma approved Aadhaar-based OTP authorization for e-filing.</div>
+            <div><span style="color: var(--text-muted);">[2026-07-22 23:02:14]</span> <span style="color: var(--color-primary);">[ENCRYPT]</span> File 'Form-16-PartB_FY25.pdf' encrypted using AES-256 keys. SHA256: e3b0c442...</div>
+            <div><span style="color: var(--text-muted);">[2026-07-22 23:02:18]</span> <span style="color: var(--color-accent);">[API_FETCH]</span> IT Department AIS Database API returned success for PAN ABCDE1234F.</div>
+            <div><span style="color: var(--text-muted);">[2026-07-22 23:03:02]</span> <span style="color: var(--color-warning);">[VALIDATION]</span> Run checking engine. Mismatch flags found: Interest details did not match.</div>
+            <div><span style="color: var(--text-muted);">[2026-07-22 23:05:54]</span> <span style="color: var(--color-success); font-weight:700;">[SUBMIT]</span> Return JSON generated for ITR-1 AY 2026-27. Schema Version: v1.0.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 7: ADMIN TICKETS & NOTICE REPLY -->
+      <section id="admin-tickets-section" class="wizard-step-content">
+        <div class="grid-2">
+          <!-- Active notices from IT portal -->
+          <div class="glass-card">
+            <h4 style="font-weight: 700; margin-bottom: 16px;">Tax Notice Analyzer</h4>
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">Scans e-proceedings from e-filing portal and parses notices automatically under Section 143(1)(a) or 139(9).</p>
+            
+            <div class="advisor-list">
+              <div class="advisor-card" style="border-color: var(--color-error);">
+                <div class="advisor-content">
+                  <span class="advisor-badge-save" style="background-color: var(--color-error-glow); color: var(--color-error); font-weight: 700;">Notice Sec 139(9) - Defective</span>
+                  <div style="font-weight: 600; font-size: 13px;">Defective Return Notice - Assessee: Anil Verma</div>
+                  <p style="font-size: 11px; color: var(--text-muted);">Mismatch between gross receipts reported in ITR and credit in form 26AS. Response due in 15 days.</p>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="draftNoticeReply('Anil Verma', 'Defective Return - Sec 139(9)')">Draft Reply</button>
+              </div>
+            </div>
+
+            <!-- Draft Notice Reply Box (hidden initially) -->
+            <div class="error-fix-box" id="notice-drafting-box" style="display: none; margin-top: 16px;">
+              <div class="error-fix-title" style="color: var(--color-primary);"><i class="fa-solid fa-pen-nib"></i> AI-Drafted Notice Response</div>
+              <textarea class="form-control" id="notice-reply-textarea" rows="6" style="font-size: 12px; line-height: 1.5; font-family: monospace;"></textarea>
+              <div style="margin-top: 8px;">
+                <button class="btn btn-primary btn-sm" onclick="submitDraftReply()">Publish & Send Response</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Chat Tickets -->
+          <div class="glass-card">
+            <h4 style="font-weight: 700; margin-bottom: 16px;">CA Expert Support Tickets</h4>
+            <div class="document-list">
+              <div class="document-item">
+                <div>
+                  <div style="font-weight: 600; font-size: 13px;">Vikram Sharma - Capital Gains Query</div>
+                  <p style="font-size: 11px; color: var(--text-muted);">"I bought shares in 2021 and sold yesterday. How is indexation calculated?"</p>
+                </div>
+                <button class="btn btn-primary btn-sm btn-sm" onclick="replyToSupportTicket('Vikram Sharma')"><i class="fa-solid fa-reply"></i> Reply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- RIGHT PANEL: AI CHAT ASSISTANT -->
+    <aside class="chatbot-pane">
+      <div class="chat-header">
+        <div class="chat-bot-avatar">
+          <i class="fa-solid fa-robot" style="color: white;"></i>
+        </div>
+        <div class="chat-title-wrap">
+          <span class="chat-title">AI Tax Coach</span>
+          <span class="chat-subtitle">Online & Active</span>
+        </div>
+      </div>
+
+      <!-- Messages thread -->
+      <div class="chat-messages" id="chat-messages-container">
+        <div class="chat-msg bot">
+          <div>Namaste! I am your AI Tax Assistant. You can upload documents like Form 16, AIS, or bank statements, or directly ask me questions like:</div>
+          <span class="chat-time">23:07</span>
+        </div>
+      </div>
+
+      <!-- Quick chips suggestions -->
+      <div class="chat-suggestions">
+        <div class="chip" onclick="askChatbot('Can I claim HRA and Home Loan both?')">HRA + Home Loan?</div>
+        <div class="chip" onclick="askChatbot('What are 80D medical limits?')">80D Limits</div>
+        <div class="chip" onclick="askChatbot('Explain the difference between Old and New Regime slabs')">Regime Diff</div>
+      </div>
+
+      <!-- Send input bar -->
+      <div class="chat-input-area">
+        <input type="text" class="chat-input" id="chatbot-user-input" placeholder="Ask your tax question here..." onkeypress="handleChatEnter(event)">
+        <button class="btn btn-primary btn-sm" style="padding: 10px 14px;" onclick="sendChatMessage()">
+          <i class="fa-solid fa-paper-plane"></i>
+        </button>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- MODAL WINDOW FOR JSON DETAILS -->
+  <div class="modal-overlay" id="json-modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h4 style="font-weight: 700; font-family: var(--font-display);" id="modal-json-title">Income Tax Department Schema JSON</h4>
+        <button onclick="closeJsonModal()" style="background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-muted);"><i class="fa-solid fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">This represents the official ITR schema JSON prepared by TaxAI Engine, validated against the latest Income Tax Dept JSON structures.</p>
+        <pre class="json-pre"><code id="modal-json-code"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeJsonModal()">Close</button>
+        <button class="btn btn-success" id="btn-download-json-modal" onclick="downloadJSONFile()">Download JSON File</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div class="toast-notification" id="app-toast-notif">
+    <div class="toast-icon" id="toast-icon-badge" style="background-color: var(--color-success);"><i class="fa-solid fa-check"></i></div>
+    <div>
+      <div style="font-weight: 700; font-size: 13px;" id="toast-title-text">Notification</div>
+      <div style="font-size: 11px; color: var(--text-secondary);" id="toast-body-text">Detail description goes here.</div>
+    </div>
+  </div>
+
+  <!-- App logic link -->
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+﻿# Dependencies
+node_modules/
+
+# Uploaded user files (contains real PDFs with personal financial data)
+uploads/
+
+# Database — contains real user PAN, salary, TDS data — add database.example.json for reference
+database.json
+
+# Environment & secrets
+.env
+*.env
+
+# OS & editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Build artifacts
+dist/
+build/

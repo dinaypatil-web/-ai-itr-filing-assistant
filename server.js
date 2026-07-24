@@ -511,24 +511,35 @@ Return a JSON object matching this schema (only fill in fields that are present 
   };
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!textResponse) {
+      throw new Error('Empty response from Gemini API.');
+    }
+
+    return JSON.parse(textResponse);
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
   }
-
-  const result = await response.json();
-  const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!textResponse) {
-    throw new Error('Empty response from Gemini API.');
-  }
-
-  return JSON.parse(textResponse);
 }
 
 // Helper functions for parsing glued PDF parsed text in Form 16 and Form 26AS/AIS

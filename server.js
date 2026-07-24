@@ -939,6 +939,13 @@ function runOcrSimulation(user, docType, actualData = {}) {
     user.income.grossSalary = actualData.grossSalary || user.income.grossSalary || 1250000;
     user.income.tdsSalary = actualData.tdsSalary || user.income.tdsSalary || 64500;
     if (!user.pan) user.pan = actualData.pan || 'ABCDE1234F';
+
+    if (docType === 'Form 16 (Part A)') {
+      if (!user.govData) user.govData = {};
+      user.govData.salaryCredit = actualData.grossSalary || user.income.grossSalary || 1250000;
+      user.govData.tdsDeposited = actualData.tdsSalary || user.income.tdsSalary || 64500;
+      if (user.govData.savingsInterest === undefined) user.govData.savingsInterest = 14500;
+    }
   } else if (docType === 'PAN Card') {
     user.pan = actualData.pan || user.pan || 'ABCDE1234F';
   } else if (docType === 'Aadhaar Card') {
@@ -962,6 +969,11 @@ function runOcrSimulation(user, docType, actualData = {}) {
     user.income.savingsInterest = actualData.savingsInterest || user.income.savingsInterest || 14500;
     user.income.grossSalary = actualData.grossSalary || user.income.grossSalary || 1250000;
     user.income.tdsSalary = actualData.tdsSalary || user.income.tdsSalary || 64500;
+
+    if (!user.govData) user.govData = {};
+    user.govData.salaryCredit = actualData.grossSalary || user.income.grossSalary || 1250000;
+    user.govData.tdsDeposited = actualData.tdsSalary || user.income.tdsSalary || 64500;
+    user.govData.savingsInterest = actualData.savingsInterest || user.income.savingsInterest || 14500;
 
     if (actualData.cgTransactions) {
       user.profile.investor = true;
@@ -1155,24 +1167,31 @@ app.get('/api/gov/reconciliation', async (req, res) => {
   if (!ref.user) return res.status(404).json({ error: 'User not found' });
   ref.user.govFetched = true;
 
-  // Extract actual gov records from the uploaded Form 26AS / AIS document if present!
-  let govSalary = 1250000;
-  let govTds = 64500;
-  let govInterest = 14500;
+  // Retrieve cached/stored govData from the user record if already populated during upload
+  let govSalary = ref.user.govData?.salaryCredit;
+  let govTds = ref.user.govData?.tdsDeposited;
+  let govInterest = ref.user.govData?.savingsInterest;
 
-  const aisFile = ref.user.uploadedFiles.find(f => f.type === 'Form 26AS / AIS');
-  if (aisFile && aisFile.path) {
-    const actualData = await extractActualDataFromPdf(aisFile.path, 'Form 26AS / AIS');
-    if (actualData.grossSalary) govSalary = actualData.grossSalary;
-    if (actualData.tdsSalary) govTds = actualData.tdsSalary;
-    if (actualData.savingsInterest) govInterest = actualData.savingsInterest;
-  } else {
-    // Fall back to Form 16 Part A values to simulate matched data if no separate AIS is uploaded yet
-    const f16File = ref.user.uploadedFiles.find(f => f.type === 'Form 16 (Part A)');
-    if (f16File && f16File.path) {
-      const actualData = await extractActualDataFromPdf(f16File.path, 'Form 16 (Part A)');
+  if (govSalary === undefined || govTds === undefined || govInterest === undefined) {
+    // Fall back to trying to parse files if they exist (local dev scenario)
+    govSalary = govSalary || 1250000;
+    govTds = govTds || 64500;
+    govInterest = govInterest || 14500;
+
+    const aisFile = ref.user.uploadedFiles.find(f => f.type === 'Form 26AS / AIS');
+    if (aisFile && aisFile.path) {
+      const actualData = await extractActualDataFromPdf(aisFile.path, 'Form 26AS / AIS');
       if (actualData.grossSalary) govSalary = actualData.grossSalary;
       if (actualData.tdsSalary) govTds = actualData.tdsSalary;
+      if (actualData.savingsInterest) govInterest = actualData.savingsInterest;
+    } else {
+      // Fall back to Form 16 Part A values to simulate matched data if no separate AIS is uploaded yet
+      const f16File = ref.user.uploadedFiles.find(f => f.type === 'Form 16 (Part A)');
+      if (f16File && f16File.path) {
+        const actualData = await extractActualDataFromPdf(f16File.path, 'Form 16 (Part A)');
+        if (actualData.grossSalary) govSalary = actualData.grossSalary;
+        if (actualData.tdsSalary) govTds = actualData.tdsSalary;
+      }
     }
   }
 

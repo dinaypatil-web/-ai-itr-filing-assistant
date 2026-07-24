@@ -531,6 +531,111 @@ Return a JSON object matching this schema (only fill in fields that are present 
   return JSON.parse(textResponse);
 }
 
+// Helper functions for parsing glued PDF parsed text in Form 16 and Form 26AS/AIS
+function splitTaxSalaryComponents(str) {
+  const cleanStr = str.replace(/,/g, '');
+  const len = cleanStr.length;
+  for (let i = 1; i < len - 2; i++) {
+    for (let j = i + 1; j < len - 1; j++) {
+      for (let k = j + 1; k < len; k++) {
+        const aStr = cleanStr.substring(0, i);
+        const bStr = cleanStr.substring(i, j);
+        const cStr = cleanStr.substring(j, k);
+        const dStr = cleanStr.substring(k);
+        if (bStr.startsWith('0') && bStr !== '0') continue;
+        if (cStr.startsWith('0') && cStr !== '0') continue;
+        const a = parseInt(aStr, 10);
+        const b = parseInt(bStr, 10);
+        const c = parseInt(cStr, 10);
+        const d = parseInt(dStr, 10);
+        if (a + b + c === d) {
+          return {
+            grossSalary17_1: a,
+            perquisites17_2: b,
+            profits17_3: c,
+            totalGrossSalary: d
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function splitQuarterlyComponents(str) {
+  const cleanStr = str.replace(/,/g, '');
+  const len = cleanStr.length;
+  for (let i = 1; i < len - 1; i++) {
+    for (let j = i + 1; j < len; j++) {
+      const aStr = cleanStr.substring(0, i);
+      const bStr = cleanStr.substring(i, j);
+      const cStr = cleanStr.substring(j);
+      if (bStr.startsWith('0') && bStr !== '0') continue;
+      if (cStr.startsWith('0') && cStr !== '0') continue;
+      const a = parseInt(aStr, 10);
+      const b = parseInt(bStr, 10);
+      const c = parseInt(cStr, 10);
+      if (b === c) {
+        return {
+          amount: a,
+          tdsDeducted: b,
+          tdsDeposited: c
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function parseCgLine(str) {
+  const startMatch = str.match(/^(\d+\.\d{2})(\d+\.\d{2})/);
+  if (!startMatch) return null;
+  const qty = parseFloat(startMatch[1]);
+  const price = parseFloat(startMatch[2]);
+  const afterQtyPrice = str.substring(startMatch[0].length);
+
+  const expectedSalesVal = Math.round(qty * price);
+  let salesValStrUsed = '';
+  let salesVal = 0;
+  const digitCommaMatch = afterQtyPrice.match(/^[\d,]+/);
+  if (digitCommaMatch) {
+    const fullPrefix = digitCommaMatch[0];
+    for (let len = 1; len <= fullPrefix.length; len++) {
+      const sub = fullPrefix.substring(0, len);
+      const val = parseInt(sub.replace(/,/g, ''), 10);
+      if (!isNaN(val) && Math.abs(val - expectedSalesVal) <= 5) {
+        salesValStrUsed = sub;
+        salesVal = val;
+        break;
+      }
+    }
+  }
+  if (!salesValStrUsed) return null;
+  const afterSalesVal = afterQtyPrice.substring(salesValStrUsed.length);
+
+  const costMatch = afterSalesVal.match(/^([\d,]+\.\d{2})/);
+  if (!costMatch) return null;
+  const costVal = parseFloat(costMatch[1].replace(/,/g, ''));
+  const remaining = afterSalesVal.substring(costMatch[0].length);
+
+  let unitFmv = 0;
+  let fmvTotal = 0;
+  let indexedCost = 0;
+  if (remaining === '000') {
+    unitFmv = 0;
+    fmvTotal = 0;
+    indexedCost = 0;
+  } else {
+    const finalMatch = remaining.match(/^([\d,]+\.\d{2})([\d,]+\.\d{2})(\d+)/);
+    if (finalMatch) {
+      unitFmv = parseFloat(finalMatch[1].replace(/,/g, ''));
+      fmvTotal = parseFloat(finalMatch[2].replace(/,/g, ''));
+      indexedCost = parseFloat(finalMatch[3].replace(/,/g, ''));
+    }
+  }
+  return { qty, price, salesVal, costVal, unitFmv, fmvTotal, indexedCost };
+}
+
 // Helper to extract actual values from uploaded PDFs using pdf-parse text extraction
 async function extractActualDataFromPdf(filePath, docType) {
   let data = {};
@@ -574,7 +679,8 @@ async function extractActualDataFromPdf(filePath, docType) {
     // 3. Document-Specific rules
     if (docType === 'Form 16 (Part A)') {
       // Total (Rs.) 227735.00 227735.00	2150911.00
-      const totalMatch = text.match(/Total\s*\(Rs\.\)\s*([\d\.]+)\s*([\d\.]+)\s*([\d\.]+)/i);
+      const totalMatch = text.match(/Total\s*\(Rs\.\)\s*(\d+\.\d{2})\s*(\d+\.\d{2})\s*(\d+\.\d{2})/i) ||
+                         text.match(/Total\s*\(Rs\.\)\s*([\d\.]+)\s*([\d\.]+)\s*([\d\.]+)/i);
       if (totalMatch) {
         data.tdsSalary = parseFloat(totalMatch[1]);
         data.grossSalary = parseFloat(totalMatch[3]);
@@ -582,46 +688,126 @@ async function extractActualDataFromPdf(filePath, docType) {
     } 
     else if (docType === 'Form 16 (Part B)') {
       // Total 2150911.00 or Total (d) 2150911.00
-      const salaryMatch = text.match(/Total\s+([\d\.]+)/i) || text.match(/Total\s*\(d\)\s*([\d\.]+)/i);
+      const salaryMatch = text.match(/Total\s*([\d\.]+)/i) || text.match(/Total\s*\(d\)\s*([\d\.]+)/i);
       if (salaryMatch) {
         data.grossSalary = parseFloat(salaryMatch[1]);
       }
     }
     else if (docType === 'Form 26AS / AIS') {
-      // Salary received: Section 192 or TDS Annexure II
-      const salaryMatch = text.match(/Salary received \(Section 192\)[^\n]+?\b\d+\s+([\d,]+)/i) ||
-                          text.match(/Salary \(TDS Annexure II\)[^\n]+?\b\d+\s+([\d,]+)/i);
-      if (salaryMatch) {
-        data.grossSalary = parseFloat(salaryMatch[1].replace(/,/g, ''));
+      let grossSalary = 0;
+
+      // Try parsing from details table under TDS Annexure II if it has a glued row:
+      // e.g. "101/04/202531/03/202619,64,8081,86,103021,50,911Active"
+      const salaryDetailMatches = text.match(/\d+(\d{2}\/\d{2}\/\d{4})(\d{2}\/\d{2}\/\d{4})([\d,]+)Active/gi);
+      if (salaryDetailMatches) {
+        for (let m of salaryDetailMatches) {
+          const detailMatch = m.match(/\d+\d{2}\/\d{2}\/\d{4}\d{2}\/\d{2}\/\d{4}([\d,]+)Active/i);
+          if (detailMatch) {
+            const parsedSalary = splitTaxSalaryComponents(detailMatch[1]);
+            if (parsedSalary) {
+              grossSalary += parsedSalary.totalGrossSalary;
+            }
+          }
+        }
       }
 
-      // Savings bank interest: SFT-016(SB) ... 2,172
-      const interestMatches = text.match(/SFT-016\(SB\)[^\n]+?\b\d+\s+([\d,]+)/gi);
-      if (interestMatches) {
-        let totalInterest = 0;
-        for (let m of interestMatches) {
-          const matchVal = m.match(/SFT-016\(SB\)[^\n]+?\b\d+\s+([\d,]+)/i);
+      // If details table not found or sum is 0, sum up the individual monthly credits under TDS-192:
+      // e.g. "1Q4(Jan-Mar)31/03/20263,66,06026,13326,133Active"
+      if (grossSalary === 0) {
+        const quarterlyMatches = text.match(/\d+Q\d(?:\([^)]+\))?\d{2}\/\d{2}\/\d{4}[\d,]+Active/gi);
+        if (quarterlyMatches) {
+          let sumQuarterly = 0;
+          for (let qm of quarterlyMatches) {
+            const qMatch = qm.match(/\d+Q\d(?:\([^)]+\))?\d{2}\/\d{2}\/\d{4}([\d,]+)Active/i);
+            if (qMatch) {
+              const parsedQ = splitQuarterlyComponents(qMatch[1]);
+              if (parsedQ) {
+                sumQuarterly += parsedQ.amount;
+              }
+            }
+          }
+          if (sumQuarterly > 0) {
+            grossSalary = sumQuarterly;
+          }
+        }
+      }
+
+      // Fallback to general matches (e.g. from TRACES summary lines)
+      if (grossSalary === 0) {
+        const salaryMatch = text.match(/Salary received \(Section 192\)[^\n]+?\b\d+\s+([\d,]+)/i) ||
+                            text.match(/Salary \(TDS Annexure II\)[^\n]+?\b\d+\s+([\d,]+)/i);
+        if (salaryMatch) {
+          grossSalary = parseFloat(salaryMatch[1].replace(/,/g, ''));
+        }
+      }
+
+      if (grossSalary > 0) {
+        data.grossSalary = grossSalary;
+      }
+
+      // TDS salary credits: sum up TDS deposited from quarterly rows if present
+      let tdsSalary = 0;
+      const quarterlyMatchesForTds = text.match(/\d+Q\d(?:\([^)]+\))?\d{2}\/\d{2}\/\d{4}[\d,]+Active/gi);
+      if (quarterlyMatchesForTds) {
+        for (let qm of quarterlyMatchesForTds) {
+          const qMatch = qm.match(/\d+Q\d(?:\([^)]+\))?\d{2}\/\d{2}\/\d{4}([\d,]+)Active/i);
+          if (qMatch) {
+            const parsedQ = splitQuarterlyComponents(qMatch[1]);
+            if (parsedQ) {
+              tdsSalary += parsedQ.tdsDeposited;
+            }
+          }
+        }
+      }
+
+      if (tdsSalary > 0) {
+        data.tdsSalary = tdsSalary;
+      } else {
+        // Fallback: TDS salary credits: sum up all active entries in quarterly tables
+        const tdsMatches = text.match(/\d{2}\/\d{2}\/\d{4}\s+[\d,]+\s+[\d,]+\s+([\d,]+)\s+Active/gi);
+        if (tdsMatches) {
+          let totalTds = 0;
+          for (let m of tdsMatches) {
+            const matchVal = m.match(/\d{2}\/\d{2}\/\d{4}\s+[\d,]+\s+[\d,]+\s+([\d,]+)\s+Active/i);
+            if (matchVal) {
+              totalTds += parseFloat(matchVal[1].replace(/,/g, ''));
+            }
+          }
+          if (totalTds > 0) {
+            data.tdsSalary = totalTds;
+          }
+        }
+      }
+
+      // Savings bank interest (SFT-016)
+      // Extract from the ICICI/Airtel detail rows: e.g. "130/05/2026062501506937Saving654Active"
+      let totalInterest = 0;
+      const detailInterestMatches = text.match(/\d+\d{2}\/\d{2}\/\d{4}[^\n]+?Saving(?:s)?[\d,]+Active/gi);
+      if (detailInterestMatches) {
+        for (let m of detailInterestMatches) {
+          const matchVal = m.match(/\d+\d{2}\/\d{2}\/\d{4}[^\n]+?Saving(?:s)?([\d,]+)Active/i);
           if (matchVal) {
             totalInterest += parseFloat(matchVal[1].replace(/,/g, ''));
           }
         }
-        if (totalInterest > 0) {
-          data.savingsInterest = totalInterest;
-        }
       }
 
-      // TDS salary credits: sum up all active entries in quarterly tables
-      const tdsMatches = text.match(/\d{2}\/\d{2}\/\d{4}\s+[\d,]+\s+[\d,]+\s+([\d,]+)\s+Active/gi);
-      if (tdsMatches) {
-        let totalTds = 0;
-        for (let m of tdsMatches) {
-          const matchVal = m.match(/\d{2}\/\d{2}\/\d{4}\s+[\d,]+\s+[\d,]+\s+([\d,]+)\s+Active/i);
-          if (matchVal) {
-            totalTds += parseFloat(matchVal[1].replace(/,/g, ''));
+      if (totalInterest > 0) {
+        data.savingsInterest = totalInterest;
+      } else {
+        // Fallback to summary line match
+        const interestMatches = text.match(/SFT-016\(SB\)[^\n]+?\b\d+\s+([\d,]+)/gi);
+        if (interestMatches) {
+          let fallbackInterest = 0;
+          for (let m of interestMatches) {
+            const matchVal = m.match(/SFT-016\(SB\)[^\n]+?\b\d+\s+([\d,]+)/i);
+            if (matchVal) {
+              fallbackInterest += parseFloat(matchVal[1].replace(/,/g, ''));
+            }
           }
-        }
-        if (totalTds > 0) {
-          data.tdsSalary = totalTds;
+          if (fallbackInterest > 0) {
+            data.savingsInterest = fallbackInterest;
+          }
         }
       }
 
@@ -632,7 +818,9 @@ async function extractActualDataFromPdf(filePath, docType) {
 
       for (let i = 0; i < pdfLines.length; i++) {
         const line = pdfLines[i];
-        const startMatch = line.match(/^(\d+)\s+(\d{2}\/\d{2}\/\d{4})\s+(.+)$/);
+        
+        // Start of transaction row: support glued index and date
+        const startMatch = line.match(/^(\d+)\s*(\d{2}\/\d{2}\/\d{4})\s*(.*)$/);
         if (startMatch) {
           currentTx = {
             date: startMatch[2],
@@ -643,51 +831,53 @@ async function extractActualDataFromPdf(filePath, docType) {
         }
 
         if (currentTx) {
-          const numMatch = line.match(/^([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+([\d,]+(?:\.\d+)?)\s+Active$/);
+          // Check if it's the numbers line: ends with Active/Inactive
+          const numMatch = line.match(/^([\d\.,]+)(Active|Inactive)$/);
           if (numMatch) {
-            const qty = parseFloat(numMatch[1].replace(/,/g, ''));
-            const price = parseFloat(numMatch[2].replace(/,/g, ''));
-            const salesVal = parseFloat(numMatch[3].replace(/,/g, ''));
-            const costVal = parseFloat(numMatch[4].replace(/,/g, ''));
-            const fmvRate = parseFloat(numMatch[5].replace(/,/g, ''));
-            const fmvTotal = parseFloat(numMatch[6].replace(/,/g, ''));
+            const parsedCg = parseCgLine(numMatch[1]);
+            if (parsedCg) {
+              const qty = parsedCg.qty;
+              const price = parsedCg.price;
+              const salesVal = parsedCg.salesVal;
+              const costVal = parsedCg.costVal;
+              const fmvTotal = parsedCg.fmvTotal;
 
-            const joinedText = currentTx.nameLines.join(' ');
-            let securityName = joinedText.replace(/#.*$/, '').replace(/PRIVATE LIMITED.*$/, '').trim();
-            if (securityName.includes('FRANKLIN TEMPLETON')) {
-              securityName = 'Franklin Templeton Mutual Fund';
-              currentTx.assetType = 'Mutual Fund';
-            } else {
-              securityName = securityName.replace(/\s+LIMITED.*$/, ' Ltd.').replace(/\s+LTD.*$/, ' Ltd.').trim();
-              currentTx.assetType = 'Equity Shares';
+              const joinedText = currentTx.nameLines.join(' ');
+              let securityName = joinedText.replace(/#.*$/, '').replace(/PRIVATE LIMITED.*$/, '').trim();
+              if (securityName.includes('FRANKLIN TEMPLETON')) {
+                securityName = 'Franklin Templeton Mutual Fund';
+                currentTx.assetType = 'Mutual Fund';
+              } else {
+                securityName = securityName.replace(/\s+LIMITED.*$/, ' Ltd.').replace(/\s+LTD.*$/, ' Ltd.').trim();
+                currentTx.assetType = 'Equity Shares';
+              }
+
+              let holdsLtcg = false;
+              if (/long\s*term/i.test(joinedText) || pdfLines.slice(Math.max(0, i-5), i).join(' ').match(/long\s*term/i)) {
+                holdsLtcg = true;
+              }
+
+              let adjustedCost = costVal;
+              if (holdsLtcg && fmvTotal > 0) {
+                adjustedCost = Math.max(costVal, Math.min(fmvTotal, salesVal));
+              }
+              const gainLoss = Math.round(salesVal - adjustedCost);
+              const isLtcg = holdsLtcg;
+
+              // Transaction level flat tax rate for SFT transactions
+              const tax = isLtcg ? Math.round(Math.max(0, gainLoss - 125000) * 0.125) : Math.round(gainLoss * 0.20);
+
+              txs.push({
+                asset: `${currentTx.assetType} - ${securityName}`,
+                buyDate: '26/05/2024',
+                sellDate: currentTx.date,
+                buyVal: Math.round(costVal),
+                sellVal: Math.round(salesVal),
+                result: gainLoss,
+                type: isLtcg ? 'LTCG' : 'STCG',
+                tax: Math.max(0, tax)
+              });
             }
-
-            let holdsLtcg = false;
-            if (/long\s*term/i.test(joinedText) || pdfLines.slice(Math.max(0, i-5), i).join(' ').match(/long\s*term/i)) {
-              holdsLtcg = true;
-            }
-
-            let adjustedCost = costVal;
-            if (holdsLtcg && fmvTotal > 0) {
-              adjustedCost = Math.max(costVal, Math.min(fmvTotal, salesVal));
-            }
-            const gainLoss = Math.round(salesVal - adjustedCost);
-            const isLtcg = holdsLtcg;
-
-            // Transaction level flat tax rate for SFT transactions
-            const tax = isLtcg ? Math.round(Math.max(0, gainLoss - 125000) * 0.125) : Math.round(gainLoss * 0.20);
-
-            txs.push({
-              asset: `${currentTx.assetType} - ${securityName}`,
-              buyDate: '26/05/2024',
-              sellDate: currentTx.date,
-              buyVal: Math.round(costVal),
-              sellVal: Math.round(salesVal),
-              result: gainLoss,
-              type: isLtcg ? 'LTCG' : 'STCG',
-              tax: Math.max(0, tax)
-            });
-
             currentTx = null;
           } else {
             currentTx.nameLines.push(line);

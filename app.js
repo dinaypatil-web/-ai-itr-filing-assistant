@@ -1959,7 +1959,10 @@ function updateDashboardWidgets() {
 
   let riskPercent = 10;
   if (appState.income.hraExemption > 150000) riskPercent += 30;
-  if (!appState.resolvedAisMismatch && appState.govFetched) riskPercent += 40;
+  const govInterestVal = appState.govData ? appState.govData.savingsInterest : 14500;
+  const docInterestVal = appState.income.savingsInterest;
+  const hasMismatch = docInterestVal < govInterestVal;
+  if (hasMismatch && !appState.resolvedAisMismatch && appState.govFetched) riskPercent += 40;
   if (appState.profile.business && appState.income.businessPresIncome === 0) riskPercent += 20;
 
   let label = 'Low', labelColor = 'var(--color-success)', daysText = '12-18 Days';
@@ -2023,7 +2026,14 @@ function recalculateHealthScore() {
   if (appState.userLoggedIn)             score += 20;
   if (appState.uploadedFiles.length > 0) score += 20;
   if (appState.govFetched) {
-    score += appState.resolvedAisMismatch ? 20 : -10;
+    const govInterestVal = appState.govData ? appState.govData.savingsInterest : 14500;
+    const docInterestVal = appState.income.savingsInterest;
+    const hasMismatch = docInterestVal < govInterestVal;
+    if (hasMismatch) {
+      score += appState.resolvedAisMismatch ? 20 : -10;
+    } else {
+      score += 20; // No mismatch, full score
+    }
   }
   if (/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(appState.userPAN) &&
       /^[A-Z]{4}0[A-Z0-9]{6}$/.test(appState.bankAccount.ifsc)) score += 10;

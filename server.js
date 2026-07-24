@@ -1438,7 +1438,9 @@ app.post('/api/validation', async (req, res) => {
   }
 
   // Check AIS discrepancy
-  if (user.govFetched && !user.resolvedAisMismatch) {
+  const govInterest = user.govData?.savingsInterest || 0;
+  const docInterest = user.income?.savingsInterest || 0;
+  if (user.govFetched && govInterest > docInterest && !user.resolvedAisMismatch) {
     errors.push({ id: 'ais', title: 'AIS Savings Interest Mismatch', desc: 'Government records show higher bank interest credit than entered. Accept government valuation or click Ignore.', value: '' });
   }
 

@@ -1091,6 +1091,8 @@ async function syncInputsToUi() {
   set('ocr-ded-80c',          appState.deductions.sec80C);
   set('ocr-ded-80d',          appState.deductions.sec80D);
   set('ocr-ded-nps',          appState.deductions.sec80CCD);
+  set('ocr-bank-acc',         appState.bankAccount?.accNumber || '');
+  set('ocr-bank-ifsc',        appState.bankAccount?.ifsc || '');
 
   // Sync selected regime card highlighting
   const regime = appState.selectedRegime || 'new';
@@ -1102,6 +1104,16 @@ async function syncInputsToUi() {
   if (activeCard) activeCard.classList.add('selected');
 
   await syncCalculatorInputsToUi();
+}
+
+async function saveBankDetailsFromUi() {
+  const accNumber = document.getElementById('ocr-bank-acc')?.value || '';
+  const ifsc = document.getElementById('ocr-bank-ifsc')?.value || '';
+  if (!appState.bankAccount) appState.bankAccount = {};
+  appState.bankAccount.accNumber = accNumber;
+  appState.bankAccount.ifsc = ifsc;
+  await apiPost('/profile/bank-ifsc', { accNumber, ifsc });
+  recalculateAll();
 }
 
 async function syncCalculatorInputsToUi() {

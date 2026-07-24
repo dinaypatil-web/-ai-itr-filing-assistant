@@ -688,6 +688,12 @@ async function extractActualDataFromPdf(filePath, docType) {
       data.name = 'Dinay Patil';
     }
 
+    // 2.5 Extract Bank details (IFSC, Account Number)
+    const ifscMatches = text.match(/\b([A-Z]{4}0[A-Z0-9]{6})\b/i);
+    const accNumberMatch = text.match(/(?:A\/c|Account|Acc|A\/c\s*No)\s*(?:Number|No)?\s*[:\-\s]\s*(\d{9,18})/i);
+    if (ifscMatches) data.ifsc = ifscMatches[1].toUpperCase();
+    if (accNumberMatch) data.accNumber = accNumberMatch[1];
+
     // 3. Document-Specific rules
     if (docType === 'Form 16 (Part A)') {
       // Total (Rs.) 227735.00 227735.00	2150911.00
@@ -933,6 +939,15 @@ function runOcrSimulation(user, docType, actualData = {}) {
 
   if (actualData.pan) user.pan = actualData.pan;
   if (actualData.name) user.name = actualData.name;
+
+  if (actualData.ifsc) {
+    if (!user.bankAccount) user.bankAccount = {};
+    user.bankAccount.ifsc = actualData.ifsc;
+  }
+  if (actualData.accNumber) {
+    if (!user.bankAccount) user.bankAccount = {};
+    user.bankAccount.accNumber = actualData.accNumber;
+  }
 
   if (docType === 'Form 16 (Part A)' || docType === 'Form 16 (Part B)') {
     user.profile.salaried = true;

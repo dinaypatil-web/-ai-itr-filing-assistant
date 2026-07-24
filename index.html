@@ -458,6 +458,22 @@
             </div>
           </div>
 
+          <div style="border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px;">
+            <h4 style="font-size: 14px; margin-bottom: 12px; font-weight: 600; color: var(--color-accent); display: flex; align-items: center; gap: 8px;">
+              <i class="fa-solid fa-building-columns"></i> Bank Account for Refund Credit
+            </h4>
+            <div class="grid-2">
+              <div class="form-group">
+                <label class="form-label">Bank Account Number</label>
+                <input type="text" class="form-control" id="ocr-bank-acc" placeholder="Enter bank account number" onchange="saveBankDetailsFromUi()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Bank IFSC Code</label>
+                <input type="text" class="form-control" id="ocr-bank-ifsc" placeholder="e.g. SBIN0000123" onchange="saveBankDetailsFromUi()">
+              </div>
+            </div>
+          </div>
+
           <div class="step-navigation-bar">
             <button class="btn btn-secondary" onclick="prevWizardStep(3)"><i class="fa-solid fa-arrow-left"></i> Back</button>
             <button class="btn btn-primary" onclick="nextWizardStep(3)">Compare with Government Data <i class="fa-solid fa-arrow-right"></i></button>

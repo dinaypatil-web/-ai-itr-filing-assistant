@@ -1092,6 +1092,15 @@ async function syncInputsToUi() {
   set('ocr-ded-80d',          appState.deductions.sec80D);
   set('ocr-ded-nps',          appState.deductions.sec80CCD);
 
+  // Sync selected regime card highlighting
+  const regime = appState.selectedRegime || 'new';
+  const oldCard = document.getElementById('regime-card-old');
+  const newCard = document.getElementById('regime-card-new');
+  if (oldCard) oldCard.classList.remove('selected');
+  if (newCard) newCard.classList.remove('selected');
+  const activeCard = document.getElementById(`regime-card-${regime}`);
+  if (activeCard) activeCard.classList.add('selected');
+
   await syncCalculatorInputsToUi();
 }
 
@@ -1133,7 +1142,7 @@ async function recalculateAll() {
   appState.deductions.sec80D       = gv('ocr-ded-80d');
   appState.deductions.sec80CCD     = gv('ocr-ded-nps');
 
-  await apiPost('/profile/save-inputs', { income: appState.income, deductions: appState.deductions });
+  await apiPost('/profile/save-inputs', { income: appState.income, deductions: appState.deductions, selectedRegime: appState.selectedRegime });
 
   const comp = await apiPost('/regime/compare', { user: appState });
   if (comp && !comp.error) {

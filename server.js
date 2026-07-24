@@ -430,12 +430,13 @@ app.post('/api/profile', async (req, res) => {
 });
 
 app.post('/api/profile/save-inputs', async (req, res) => {
-  const { income, deductions } = req.body;
+  const { income, deductions, selectedRegime } = req.body;
   const db = await getDbData();
   const ref = getUserRecord(db, req.headers['x-user-uid']);
   if (!ref.user) return res.status(404).json({ error: 'User not found' });
-  ref.user.income = { ...ref.user.income, ...income };
-  ref.user.deductions = { ...ref.user.deductions, ...deductions };
+  if (income) ref.user.income = { ...ref.user.income, ...income };
+  if (deductions) ref.user.deductions = { ...ref.user.deductions, ...deductions };
+  if (selectedRegime) ref.user.selectedRegime = selectedRegime;
   saveUserRecord(db, ref, ref.user);
   await saveDbData(db);
   res.json({ message: 'Input values updated.' });
@@ -1042,7 +1043,7 @@ app.post('/api/documents/upload', upload.array('files'), async (req, res) => {
     // ===== REAL OCR EXTRACTION RULES =====
     const actualData = await extractActualDataFromPdf(file.path, docType);
     if (docType === 'Form 26AS / AIS' && actualData.cgTransactions) {
-      db.cgTransactions = actualData.cgTransactions;
+      ref.user.cgTransactions = actualData.cgTransactions;
     }
     runOcrSimulation(ref.user, docType, actualData);
     await writeLog('OCR', `Extracted and mapped real data from "${docType}" successfully.`);
@@ -1128,7 +1129,7 @@ app.post('/api/documents/update-type', async (req, res) => {
   // Real OCR rules fallback: map and run OCR simulation immediately
   const actualData = await extractActualDataFromPdf(file.path, type);
   if (type === 'Form 26AS / AIS' && actualData.cgTransactions) {
-    db.cgTransactions = actualData.cgTransactions;
+    ref.user.cgTransactions = actualData.cgTransactions;
   }
   runOcrSimulation(ref.user, type, actualData);
 
@@ -1142,7 +1143,9 @@ app.post('/api/documents/update-type', async (req, res) => {
 
 app.get('/api/transactions', async (req, res) => {
   const db = await getDbData();
-  res.json(db.cgTransactions || []);
+  const ref = getUserRecord(db, req.headers['x-user-uid']);
+  if (!ref.user) return res.status(401).json({ error: 'User not found' });
+  res.json(ref.user.cgTransactions || []);
 });
 
 // 4. Reconciliation with Govt Sourced Data
@@ -1296,27 +1299,28 @@ app.post('/api/calculators/capital-gains', async (req, res) => {
 
   const tx = { asset, buyDate, sellDate, buyVal, sellVal, result, type, tax };
   
-  if (!db.cgTransactions) db.cgTransactions = [];
-  db.cgTransactions.push(tx);
+  if (!ref.user.cgTransactions) ref.user.cgTransactions = [];
+  ref.user.cgTransactions.push(tx);
   
   saveUserRecord(db, ref, ref.user);
   await saveDbData(db);
-  await writeLog('CALC', `Capital Gains transaction logged: ${asset} gain +₹${result}`);
+  await writeLog('CALC', `Capital Gains transaction logged for ${ref.key}: ${asset} gain +₹${result}`);
 
-  res.json({ transaction: tx, transactions: db.cgTransactions });
+  res.json({ transaction: tx, transactions: ref.user.cgTransactions });
 });
 
 app.post('/api/calculators/capital-gains/delete', async (req, res) => {
   const { index } = req.body;
   const db = await getDbData();
   const ref = getUserRecord(db, req.headers['x-user-uid']);
+  if (!ref.user) return res.status(401).json({ error: 'User not found' });
 
-  if (!db.cgTransactions) db.cgTransactions = [];
-  db.cgTransactions.splice(index, 1);
+  if (!ref.user.cgTransactions) ref.user.cgTransactions = [];
+  ref.user.cgTransactions.splice(index, 1);
   
   saveUserRecord(db, ref, ref.user);
   await saveDbData(db);
-  res.json({ transactions: db.cgTransactions });
+  res.json({ transactions: ref.user.cgTransactions });
 });
 
 // Compare Regimes endpoint
